@@ -1,0 +1,20 @@
+{
+  "name": "@local/game-story-mcp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Connect the local Game Story Studio open-world MCP server to the Harness.",
+  "exports": {
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

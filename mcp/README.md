@@ -129,6 +129,17 @@ npm run mcp
 }
 ```
 
+## 已接入 DSH（本机）
+
+仓库内 [harness/game-story-mcp](../harness/game-story-mcp) 是一个 **configuration-only Cordis bundle**，已通过 `plugin_manager install_bundle` 接入当前 `web` profile：
+
+- `serverName`：`game-story`，工具名前缀 `mcp__game-story__*`
+- 传输：`stdio`，命令 `C:/Program Files/nodejs/node.exe`，参数 `D:/sgames/game-story/mcp/server.mjs`
+- 环境：`GAME_STORY_API=http://127.0.0.1:3087`
+- 验证：调用 `mcp__game-story__api_status` 或 `mcp__game-story__world_analyze`
+
+如果仓库换了位置，修改 [cordis.patch.yml](../harness/game-story-mcp/cordis.patch.yml) 里的 `args` / `cwd`，然后重新安装该 bundle。`harness/` 下的 bundle 只负责接入，不包含游戏代码。
+
 ## 语义与约束
 
 - **写入立即落盘**：每个写工具都会读取最新 revision、修改、PUT 保存，返回新的 `revision`。

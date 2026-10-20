@@ -1,0 +1,14 @@
+- insert:
+    - id: game-story-mcp
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: game-story
+        transport: stdio
+        command: C:/Program Files/nodejs/node.exe
+        args:
+          - D:/sgames/game-story/mcp/server.mjs
+        cwd: D:/sgames/game-story
+        env:
+          GAME_STORY_API: http://127.0.0.1:3087
+        toolCallTimeoutMs: 120000
+        failOnStartupError: true
