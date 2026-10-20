@@ -28,8 +28,16 @@ const addMenuRef = ref(null)
 const canvasRef = ref(null)
 const analysis = ref(null)
 const analyzing = ref(false)
+const canUndo = ref(false)
+const canRedo = ref(false)
 let analysisTimer = null
 let addMenuHandler = null
+let historyTimer = null
+let history = []
+let historyIndex = -1
+let lastHistoryKey = ''
+let applyingHistory = false
+const HISTORY_LIMIT = 60
 
 const typeCounts = computed(() => {
   const out = {}
@@ -108,6 +116,103 @@ function selectElement(id, focus = true) {
   if (el) {
     ensureElement(el)
     if (focus) nextTick(() => canvasRef.value?.focusOn(el))
+  }
+}
+
+/* ---------------- 撤销 / 重做（元素快照） ---------------- */
+
+function cloneSnapshot(value) {
+  return JSON.parse(JSON.stringify(value))
+}
+
+function snapshotKey(snap) {
+  return JSON.stringify(snap)
+}
+
+function updateHistoryFlags() {
+  canUndo.value = historyIndex > 0
+  canRedo.value = historyIndex >= 0 && historyIndex < history.length - 1
+}
+
+function resetHistory() {
+  clearTimeout(historyTimer)
+  historyTimer = null
+  history = [cloneSnapshot(elements.value)]
+  historyIndex = 0
+  lastHistoryKey = snapshotKey(history[0])
+  applyingHistory = false
+  updateHistoryFlags()
+}
+
+function commitHistory() {
+  historyTimer = null
+  if (applyingHistory) return
+  const snap = cloneSnapshot(elements.value)
+  const key = snapshotKey(snap)
+  if (key === lastHistoryKey) return
+  if (historyIndex < history.length - 1) history = history.slice(0, historyIndex + 1)
+  history.push(snap)
+  if (history.length > HISTORY_LIMIT) history.shift()
+  historyIndex = history.length - 1
+  lastHistoryKey = key
+  updateHistoryFlags()
+}
+
+function scheduleHistory() {
+  if (applyingHistory) return
+  // 先让按钮可用，真正的快照在防抖后合并；撤销前会 flush 当前状态。
+  canUndo.value = snapshotKey(elements.value) !== lastHistoryKey
+  canRedo.value = false
+  clearTimeout(historyTimer)
+  historyTimer = setTimeout(commitHistory, 400)
+}
+
+function flushHistory() {
+  if (historyTimer) {
+    clearTimeout(historyTimer)
+    commitHistory()
+  }
+}
+
+function applyHistorySnapshot(snap) {
+  applyingHistory = true
+  world.value.elements = cloneSnapshot(snap)
+  lastHistoryKey = snapshotKey(world.value.elements)
+  if (selectedId.value && !world.value.elements.some((e) => e.id === selectedId.value)) selectedId.value = ''
+  updateHistoryFlags()
+  nextTick(() => {
+    setTimeout(() => { applyingHistory = false }, 0)
+  })
+}
+
+function undo() {
+  flushHistory()
+  if (historyIndex <= 0) return
+  historyIndex--
+  applyHistorySnapshot(history[historyIndex])
+  notify('已撤销', 'ok', 1200)
+}
+
+function redo() {
+  flushHistory()
+  if (historyIndex >= history.length - 1) return
+  historyIndex++
+  applyHistorySnapshot(history[historyIndex])
+  notify('已重做', 'ok', 1200)
+}
+
+function onHistoryKey(e) {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey) return
+  const tag = e.target?.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) return
+  const key = String(e.key).toLowerCase()
+  if (key === 'z') {
+    e.preventDefault()
+    if (e.shiftKey) redo()
+    else undo()
+  } else if (key === 'y') {
+    e.preventDefault()
+    redo()
   }
 }
 
@@ -202,6 +307,14 @@ watch(
 )
 
 watch(
+  () => world.value?.elements,
+  () => {
+    scheduleHistory()
+  },
+  { deep: true }
+)
+
+watch(
   () => JSON.stringify(world.value?.elements || []),
   () => {
     clearTimeout(analysisTimer)
@@ -214,16 +327,20 @@ watch(
 onMounted(async () => {
   if (!p.value.world) p.value.world = { name: '新世界', scaleLabel: '1 格 ≈ 20 米', elements: [] }
   elements.value.forEach(ensureElement)
+  resetHistory()
   await analyze()
   addMenuHandler = (e) => {
     if (addMenuRef.value && !addMenuRef.value.contains(e.target)) showAdd.value = false
   }
   document.addEventListener('click', addMenuHandler)
+  window.addEventListener('keydown', onHistoryKey)
 })
 
 onBeforeUnmount(() => {
   clearTimeout(analysisTimer)
+  clearTimeout(historyTimer)
   if (addMenuHandler) document.removeEventListener('click', addMenuHandler)
+  window.removeEventListener('keydown', onHistoryKey)
 })
 </script>
 
@@ -314,6 +431,8 @@ onBeforeUnmount(() => {
             </div>
             <button class="btn sm" :class="{ primary: drawMode === 'river' }" @click="toggleDraw('river')">≈ 河流</button>
             <button class="btn sm" :class="{ primary: drawMode === 'road' }" @click="toggleDraw('road')">╌ 道路</button>
+            <button class="btn sm ghost" :disabled="!canUndo" title="撤销 (Ctrl+Z)" aria-label="撤销" @click="undo">↶ 撤销</button>
+            <button class="btn sm ghost" :disabled="!canRedo" title="重做 (Ctrl+Shift+Z / Ctrl+Y)" aria-label="重做" @click="redo">↷ 重做</button>
             <button class="btn sm ghost" @click="snap = !snap">{{ snap ? '网格吸附 开' : '网格吸附 关' }}</button>
             <button class="btn sm ghost" @click="canvasRef?.fit()">⤢ 适应</button>
             <button class="btn sm ghost" @click="canvasRef?.overview()">⬚ 全览</button>

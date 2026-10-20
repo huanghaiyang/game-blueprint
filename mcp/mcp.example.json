@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "game-story": {
+      "command": "node",
+      "args": ["D:/path/to/game-story/mcp/server.mjs"],
+      "env": {
+        "GAME_STORY_API": "http://127.0.0.1:3087"
+      }
+    }
+  }
+}

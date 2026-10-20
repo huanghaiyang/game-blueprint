@@ -14,8 +14,10 @@
     "reset": "node server/reset.js",
     "fix:sandbox": "node scripts/fix-sandbox.mjs",
     "audit": "node scripts/audit.mjs",
+    "mcp": "node mcp/server.mjs",
     "qa:world": "node scripts/qa-world.mjs",
     "qa:world:edit": "node scripts/qa-world-edit.mjs",
+    "qa:world:undo": "node scripts/qa-world-undo.mjs",
     "check:sensitive": "node scripts/check-sensitive.mjs",
     "test": "node server/tests/run.js"
   },

@@ -312,6 +312,16 @@ Node HTTP 服务（server/index.js）
 - 引用：`characterId` 指向 `characters[].id`；`narrativeNodeId` 指向 `narrative.nodes[].id`；`portal.targetId` 指向其他元素 id。
 - 体检（`world.js`）会检查：重复/缺失坐标、角色与剧情节点引用、空对话、空任务目标、聚落敌对 + 安全区冲突、传送门目标、收集物数量、路径点数量等。
 
+### 2.6 画布撤销 / 重做
+
+前端 `World.vue` 维护一个**元素快照栈**（最多 60 步），覆盖画布上的所有写操作：
+
+- 深层 watch `world.elements` → 400ms 防抖合并连续输入（例如逐字改名）。
+- 添加、删除、拖动、绘制路径、检查器字段修改都会进入同一快照栈。
+- 撤销/重做前先 flush 待提交快照，避免漏掉最后一次编辑；恢复快照会替换整个 `elements` 数组并触发防抖保存。
+- 按钮：工具栏 `↶ / ↷`；快捷键：`Ctrl/⌘ + Z` 撤销，`Ctrl/⌘ + Shift + Z` 或 `Ctrl/⌘ + Y` 重做（输入框内保留浏览器原生撤销）。
+- 快照使用 JSON 深拷贝而不是 `structuredClone`，因为元素对象来自 Vue 响应式代理。
+
 ## 3. 引擎接口
 
 ### `expr.js`
@@ -370,7 +380,28 @@ analyzeWorld(project) // { summary, warnings, settlements, quests, dialogues, po
 
 `summary` 含元素分类计数、聚落（安全/敌对/中立）、对话数（含特定对象）、任务数、传送门可用数、地图范围与错误/警告计数；蓝图会引用该结果生成「开放世界摘要」章节。
 
-## 4. 保存协议
+## 4. MCP 层
+
+`mcp/` 是一个零第三方依赖的 MCP stdio 服务，协议层与业务层分离：
+
+```text
+mcp/server.mjs   JSON-RPC 2.0 stdio：initialize / tools/list / tools/call / ping
+mcp/tools.mjs    12 个工具定义 + 参数校验 + 元素/对话/任务规范化
+mcp/api.mjs      本地 REST 客户端，读-改-写、409 重试、项目解析
+```
+
+设计：
+
+- **不绕过 API**：MCP 不直接写 `data/`，而是调用 `/api/projects` 与 `/api/engine/*`，复用 revision 冲突检测。
+- **写操作串行化**：服务内部用 Promise 队列串行处理 `tools/call`，避免同一进程内并发写。
+- **自动重试**：每个写工具读取最新 revision、修改、PUT；遇到 409 自动重读并重试一次，仍冲突则把可操作的错误返回给模型。
+- **零依赖**：手写换行分隔 JSON-RPC，无需安装 MCP SDK；stdout 只输出协议消息，日志走 stderr。
+- **工具语义**：`world_add_element` / `world_update_element` / `world_remove_element` 覆盖通用元素；`world_set_settlement` 与 `world_set_npc_dialogue` 提供聚落状态、特定对话、分支、任务的语义化快捷入口；`world_analyze` / `blueprint_markdown` 只读。
+- **约束**：本地 API 必须先运行；坐标是无限世界坐标；路径入参为绝对坐标，落盘为相对 `x/y` 的控制点。
+
+
+
+## 5. 保存协议
 
 - 页面每次编辑触发深度 watch → 650ms 防抖 → `PUT /api/projects/:id`。
 - 请求带 `baseRevision`；该企划的 revision 不匹配返回 `409` 与当前 revision，前端提示并重新加载，避免覆盖。
@@ -381,7 +412,7 @@ analyzeWorld(project) // { summary, warnings, settlements, quests, dialogues, po
 - 演示数据重建：`POST /api/demo/reset`（演示企划专属按钮）。
 - 迁移：首次启动若 `data/projects/` 为空但存在旧 `data/project.json`，会自动迁移为 `proj-mist-harbor.json`。
 
-## 5. 扩展点
+## 6. 扩展点
 
 | 需求 | 建议改动 |
 | --- | --- |
