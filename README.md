@@ -136,6 +136,7 @@ game-story/
 
 ```bash
 npm test                  # 26 项自测：表达式 / 数值 / 战斗 / 分支 / 推理 / 蓝图 / 多企划模块
+npm run check:sensitive   # 扫描密钥、令牌、邮箱、个人绝对路径
 node scripts/audit.mjs    # 需本机 Chrome 开启 CDP 9333；逐路由截图 + 控制台错误
 node scripts/qa-projects.mjs  # 多企划 UI 验收：新建、模块开关、推理空态、清理
 ```
@@ -151,6 +152,8 @@ node scripts/qa-projects.mjs  # 多企划 UI 验收：新建、模块开关、�
 - **提交前自检**：
 
   ```bash
+  npm run check:sensitive
+  # 或只扫描暂存区
   git grep -nI -E "api[_-]?key|secret|password|token|BEGIN (RSA|OPENSSH|PRIVATE)|C:\\\\Users|/home/" --cached
   ```
 

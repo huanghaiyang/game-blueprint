@@ -14,6 +14,7 @@
     "reset": "node server/reset.js",
     "fix:sandbox": "node scripts/fix-sandbox.mjs",
     "audit": "node scripts/audit.mjs",
+    "check:sensitive": "node scripts/check-sensitive.mjs",
     "test": "node server/tests/run.js"
   },
   "dependencies": {
