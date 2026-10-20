@@ -9,7 +9,280 @@ export const DEFAULT_MODULES = {
   combat: true,
   branches: true,
   blueprint: true,
+  world: true,
   inference: false
+}
+
+/* ---------------- 开放世界演示地图 ---------------- */
+
+function pathElement(id, type, name, coords, width, color) {
+  const [x, y] = coords[0]
+  return {
+    id,
+    type,
+    name,
+    x,
+    y,
+    color,
+    points: coords.map(([px, py]) => ({ x: px - x, y: py - y })),
+    data: { width }
+  }
+}
+
+const line = (speaker, text) => ({ speaker, text })
+const choice = (label, response) => ({ label, response })
+const quest = (id, title, summary, objectives, reward) => ({
+  id,
+  title,
+  summary,
+  objectives: objectives.map((text) => ({ text, done: false })),
+  reward,
+  status: '未接取'
+})
+const dialogue = (id, name, audienceIds, lines, choices, questData = null) => ({
+  id,
+  name,
+  audienceIds,
+  lines,
+  choices,
+  quest: questData
+})
+
+export function seedWorld() {
+  const elements = [
+    // 区域（先画，作为底图）
+    { id: 'w-region-mist', type: 'region', name: '雾语森林', x: -1180, y: -260, radius: 520, color: '#4ade80', data: { regionType: '森林', danger: 3, effect: '低语会缓慢消耗理智，雾浓时方向感下降。' } },
+    { id: 'w-region-salt', type: 'region', name: '盐沼', x: -560, y: 720, radius: 430, color: '#2dd4bf', data: { regionType: '沼泽', danger: 4, effect: '持续掉血；盐雾会腐蚀金属装备。' } },
+    { id: 'w-region-clock', type: 'region', name: '钟楼区', x: 420, y: -350, radius: 430, color: '#fbbf24', data: { regionType: '城区', danger: 2, effect: '钟声范围内移动速度 +10%，但会引来雾中生物。' } },
+    { id: 'w-region-strait', type: 'region', name: '雾港海峡', x: 1050, y: 520, radius: 500, color: '#38bdf8', data: { regionType: '海域', danger: 5, effect: '能见度极低，需要灯塔或潮汐罗盘指引。' } },
+    { id: 'w-region-north', type: 'region', name: '北岭', x: -220, y: -960, radius: 400, color: '#94a3b8', data: { regionType: '山地', danger: 4, effect: '寒冷：火把消耗翻倍，夜间视野缩短。' } },
+
+    // 聚落
+    {
+      id: 'w-set-oldtown', type: 'settlement', name: '雾港老城', x: -780, y: -60, radius: 300, color: '#67e8f9',
+      data: {
+        faction: '港务局', population: 4200, hostile: false, safeZone: true,
+        services: ['商店', '铁匠', '酒馆', '任务'],
+        buffs: [{ name: '潮汐庇护', desc: '在城内每 10 秒恢复 2% 生命。' }],
+        notes: '雾港唯一还算像样的地方。入夜后巡夜队会关闭东门。'
+      }
+    },
+    {
+      id: 'w-set-clock', type: 'settlement', name: '钟楼集', x: 420, y: -360, radius: 220, color: '#fbbf24',
+      data: {
+        faction: '民间', population: 860, hostile: false, safeZone: true,
+        services: ['修表', '任务', '交易所'],
+        buffs: [{ name: '齿轮专注', desc: '制作与修理成功率 +10%。' }],
+        notes: '钟楼下的小集市，阿禾的修表铺就在广场西侧。'
+      }
+    },
+    {
+      id: 'w-set-north', type: 'settlement', name: '北岸哨站', x: 760, y: -780, radius: 170, color: '#7dd3fc',
+      data: {
+        faction: '港务局', population: 120, hostile: false, safeZone: true,
+        services: ['补给', '任务'],
+        buffs: [{ name: '哨戒视野', desc: '附近隐身单位显形。' }],
+        notes: '铁鸦的地盘。哨塔上能看见整个北岸。'
+      }
+    },
+    {
+      id: 'w-set-salt', type: 'settlement', name: '盐沼营地', x: -520, y: 760, radius: 240, color: '#fb7185',
+      data: {
+        faction: '雾教', population: 210, hostile: true, safeZone: false,
+        services: ['黑市'],
+        buffs: [{ name: '盐雾适应', desc: '在盐沼中不再减速（仅对雾教成员生效）。' }],
+        notes: '雾教的补给点。外人进入会被盘问，建议带上雾中女士的信物。'
+      }
+    },
+
+    // 建筑
+    { id: 'w-build-teahouse', type: 'building', name: '老城茶馆', x: -840, y: -10, color: '#fbbf24', data: { function: '茶馆', owner: '白鹭', narrativeNodeId: 'n7' } },
+    { id: 'w-build-archive', type: 'building', name: '港务局档案室', x: -700, y: -150, color: '#94a3b8', data: { function: '档案室', owner: '港务局', narrativeNodeId: 'n10' } },
+    { id: 'w-build-watchshop', type: 'building', name: '阿禾修表铺', x: 360, y: -420, color: '#fcd34d', data: { function: '修表铺', owner: '阿禾', narrativeNodeId: '' } },
+    { id: 'w-build-warehouse', type: 'building', name: '废弃货栈', x: -80, y: 140, color: '#a8a29e', data: { function: '货栈', owner: '无', narrativeNodeId: 'n4' } },
+    { id: 'w-build-lighthouse', type: 'building', name: '雾港灯塔', x: 1080, y: 430, color: '#fde68a', data: { function: '灯塔', owner: '港务局', narrativeNodeId: '' } },
+    { id: 'w-build-dock', type: 'building', name: '老城码头', x: -980, y: 150, color: '#7dd3fc', data: { function: '码头', owner: '港务局', narrativeNodeId: '' } },
+
+    // 重要据点
+    { id: 'w-hold-clocktower', type: 'stronghold', name: '钟楼', x: 420, y: -300, color: '#c084fc', data: { faction: '民间', level: 2, defense: 60, narrativeNodeId: 'n11' } },
+    { id: 'w-hold-fort', type: 'stronghold', name: '北岸炮台', x: 860, y: -840, color: '#94a3b8', data: { faction: '港务局', level: 3, defense: 90, narrativeNodeId: '' } },
+
+    // 角色 / NPC
+    {
+      id: 'w-char-bailu', type: 'character', name: '白鹭', x: -790, y: -30, color: '#f0abfc',
+      data: {
+        characterId: 'bai_lu', faction: '独立', level: 6,
+        dialogues: [
+          dialogue('d-bailu-all', '情报买卖', [], [
+            line('白鹭', '雾港不问你从哪来，只问你付得起什么。'),
+            line('白鹭', '第三封信？那可不便宜。')
+          ], [
+            choice('问第三封信', '去钟楼集找阿禾，他见过送信的人。别走正门。'),
+            choice('问货舱的事', '你终于学会怀疑了。货舱里的箱子，最好别一个人去开。')
+          ]),
+          dialogue('d-bailu-shen', '只对沈砚说的话', ['shen_yan'], [
+            line('白鹭', '你欠我的两段记忆，还记得吗？'),
+            line('白鹭', '别急着还。先活着走出雾港。')
+          ], [
+            choice('我会还的', '那就先把第三封信找回来。'),
+            choice('你在替谁做事？', '替一个已经死了的人。')
+          ], quest('q-third-letter', '第三封信的线索', '白鹭要你去钟楼集确认第三封信的收信人，并把结果带回来。', ['前往钟楼集', '与阿禾交谈', '把结果带回老城茶馆'], '雾港情报网通行证'))
+        ]
+      }
+    },
+    {
+      id: 'w-char-ahe', type: 'character', name: '阿禾', x: 395, y: -445, color: '#fcd34d',
+      data: {
+        characterId: 'a_he', faction: '民间', level: 3,
+        dialogues: [
+          dialogue('d-ahe-all', '钟摆的维修记录', ['shen_yan', 'bai_lu'], [
+            line('阿禾', '钟楼停了七分钟，不是坏了，是有人让它停的。'),
+            line('阿禾', '我爹的维修记录里，夹着三枚旧齿轮。')
+          ], [
+            choice('能给我看看记录吗？', '可以，但你得先帮我把三枚齿轮找回来。'),
+            choice('谁让你停的钟？', '一个戴帽子的人。他没说名字，只给了很多钱。')
+          ], quest('q-clock', '修好钟摆', '阿禾需要三枚旧齿轮才能修好钟楼，钟声或许能驱散雾。', ['找到旧齿轮（钟楼区）', '找到第二枚齿轮（盐沼）', '把齿轮交给阿禾'], '钟楼钥匙'))
+        ]
+      }
+    },
+    {
+      id: 'w-char-tieya', type: 'character', name: '铁鸦', x: 780, y: -800, color: '#fca5a5',
+      data: {
+        characterId: 'tie_ya', faction: '港务局', level: 8,
+        dialogues: [
+          dialogue('d-tieya-shen', '执法官的警告', ['shen_yan'], [
+            line('铁鸦', '巡夜人，你最近走得太远了。'),
+            line('铁鸦', '把第三封信交出来，我可以当什么都没发生。')
+          ], [
+            choice('信不在我手上', '那就去找。找到之前，别回老城。'),
+            choice('是你写的吗？', '……你比我想的更聪明，也更麻烦。')
+          ], quest('q-hand-in', '交出第三封信', '铁鸦要求你交出第三封信，换取巡夜队的通行权限。', ['找到第三封信', '决定是否交给铁鸦'], '北岸通行令'))
+        ]
+      }
+    },
+    {
+      id: 'w-char-lady', type: 'character', name: '雾中女士', x: -180, y: -880, color: '#a78bfa',
+      data: {
+        characterId: 'lady_mist', faction: '雾教', level: 12,
+        dialogues: [
+          dialogue('d-lady-shen', '名字的代价', ['shen_yan'], [
+            line('雾中女士', '沈砚不是你的名字。你猜，谁替你取的？'),
+            line('雾中女士', '拿一段记忆来换，我就告诉你。')
+          ], [
+            choice('换', '成交。但我只收你最想忘记的那一段。'),
+            choice('不换', '那就带着你的名字，继续在雾里走。')
+          ], quest('q-name', '名字的代价', '雾中女士愿意用真相交换一段记忆；代价由你决定。', ['前往雾中石门', '与雾中女士对话', '做出交易选择'], '被抹去的三年'))
+        ]
+      }
+    },
+    { id: 'w-char-player', type: 'character', name: '沈砚（出生点）', x: -880, y: -60, color: '#7dd3fc', data: { characterId: 'shen_yan', player: true, faction: '港务局', level: 5, dialogues: [] } },
+    {
+      id: 'w-char-fisher', type: 'character', name: '渔夫老周', x: 980, y: 320, color: '#86efac',
+      data: {
+        characterId: null, faction: '民间', level: 1,
+        dialogues: [
+          dialogue('d-fisher-all', '失踪的渔网', [], [
+            line('渔夫老周', '我的渔网昨夜被什么东西拖进海里了。'),
+            line('渔夫老周', '你要是能帮我找回来，我请你喝鱼汤。')
+          ], [
+            choice('我去看看', '谢了！就在灯塔下面的礁石边。'),
+            choice('最近海里不太平', '可不是嘛，雾一起来，连鱼都不见了。')
+          ], quest('q-net', '失踪的渔网', '老周的渔网被拖到了灯塔礁石边，帮他找回来。', ['在灯塔礁石边搜索', '把渔网带回给老周'], '鱼汤配方'))
+        ]
+      }
+    },
+    {
+      id: 'w-char-merchant', type: 'character', name: '行商', x: 180, y: 140, color: '#fbbf24',
+      data: {
+        characterId: null, faction: '商会', level: 2,
+        dialogues: [
+          dialogue('d-merchant-all', '走南闯北', [], [
+            line('行商', '老城收盐，盐沼收命。你要哪种？'),
+            line('行商', '我这儿有地图，不过价格随雾的浓度浮动。')
+          ], [
+            choice('看看地图', '五十枚铜币，不还价。雾散了就涨价。'),
+            choice('打听盐沼的路', '沿着盐溪走，看见红灯笼就回头。')
+          ])
+        ]
+      }
+    },
+    {
+      id: 'w-char-guard', type: 'character', name: '盐沼守卫', x: -520, y: 790, color: '#fb7185',
+      data: {
+        characterId: null, faction: '雾教', level: 5, hostile: true,
+        dialogues: [
+          dialogue('d-guard-all', '此路不通', [], [
+            line('盐沼守卫', '雾教的地盘，外人止步。'),
+            line('盐沼守卫', '除非你带来雾中女士的口信。')
+          ], [
+            choice('我有信物', '……进去吧，别碰祭坛。'),
+            choice('让开', '那就别怪我不客气。')
+          ])
+        ]
+      }
+    },
+
+    // 可收集物
+    { id: 'w-item-key', type: 'collectible', name: '生锈的钟楼钥匙', x: 520, y: -250, color: '#fbbf24', data: { itemName: '钟楼钥匙', rarity: '稀有', amount: 1, respawn: false } },
+    { id: 'w-item-letter', type: 'collectible', name: '第三封信残页', x: -360, y: -760, color: '#f0abfc', data: { itemName: '第三封信残页', rarity: '传说', amount: 1, respawn: false } },
+    { id: 'w-item-shell', type: 'collectible', name: '记忆贝壳', x: 920, y: 560, color: '#67e8f9', data: { itemName: '记忆贝壳', rarity: '普通', amount: 3, respawn: true } },
+    { id: 'w-item-lotus', type: 'collectible', name: '雾莲', x: -1080, y: -300, color: '#86efac', data: { itemName: '雾莲', rarity: '稀有', amount: 2, respawn: true } },
+    { id: 'w-item-salt', type: 'collectible', name: '盐晶簇', x: -430, y: 620, color: '#5eead4', data: { itemName: '盐晶', rarity: '普通', amount: 5, respawn: true } },
+    { id: 'w-item-gear', type: 'collectible', name: '旧齿轮', x: 320, y: -380, color: '#a8a29e', data: { itemName: '旧齿轮', rarity: '稀有', amount: 1, respawn: false } },
+    { id: 'w-item-compass', type: 'collectible', name: '潮汐罗盘', x: 1120, y: 380, color: '#fde68a', data: { itemName: '潮汐罗盘', rarity: '传说', amount: 1, respawn: false } },
+
+    // 树木
+    { id: 'w-tree-1', type: 'tree', name: '雾松', x: -1320, y: -120, color: '#4ade80', data: { species: '雾松', height: 18 } },
+    { id: 'w-tree-2', type: 'tree', name: '雾松', x: -1240, y: 80, color: '#4ade80', data: { species: '雾松', height: 22 } },
+    { id: 'w-tree-3', type: 'tree', name: '老槐', x: -1120, y: 240, color: '#86efac', data: { species: '老槐', height: 15 } },
+    { id: 'w-tree-4', type: 'tree', name: '雾松', x: -1110, y: -360, color: '#4ade80', data: { species: '雾松', height: 20 } },
+    { id: 'w-tree-5', type: 'tree', name: '老槐', x: -980, y: 440, color: '#86efac', data: { species: '老槐', height: 14 } },
+    { id: 'w-tree-6', type: 'tree', name: '雾松', x: -1380, y: -320, color: '#4ade80', data: { species: '雾松', height: 24 } },
+    { id: 'w-tree-7', type: 'tree', name: '枯柳', x: -1420, y: 60, color: '#a3a35c', data: { species: '枯柳', height: 12 } },
+    { id: 'w-tree-8', type: 'tree', name: '盐桦', x: -620, y: 560, color: '#a3e635', data: { species: '盐桦', height: 10 } },
+
+    // 山川
+    { id: 'w-mtn-1', type: 'mountain', name: '北岭主峰', x: -420, y: -1020, radius: 180, color: '#94a3b8', data: { peaks: 5, danger: 4 } },
+    { id: 'w-mtn-2', type: 'mountain', name: '断崖', x: -40, y: -1080, radius: 140, color: '#94a3b8', data: { peaks: 3, danger: 3 } },
+    { id: 'w-mtn-3', type: 'mountain', name: '鹰嘴岩', x: 260, y: -920, radius: 120, color: '#94a3b8', data: { peaks: 3, danger: 4 } },
+    { id: 'w-mtn-4', type: 'mountain', name: '西海礁', x: 1000, y: 700, radius: 110, color: '#64748b', data: { peaks: 2, danger: 2 } },
+
+    // 河流与道路
+    pathElement('w-river-mist', 'river', '雾河', [[-1500, -520], [-1220, -360], [-960, -200], [-780, -60], [-560, 200], [-400, 460], [-300, 720], [-200, 1100]], 26, '#38bdf8'),
+    pathElement('w-river-salt', 'river', '盐溪', [[-820, 900], [-660, 830], [-520, 760], [-320, 700], [-180, 560]], 14, '#2dd4bf'),
+    pathElement('w-road-main', 'road', '雾港官道', [[-780, -60], [-420, 90], [-40, -120], [420, -360]], 8, '#a8a29e'),
+    pathElement('w-road-clock', 'road', '钟楼小径', [[420, -360], [700, -200], [980, 240]], 6, '#a8a29e'),
+    pathElement('w-road-north', 'road', '北岸栈道', [[760, -780], [600, -600], [420, -360]], 6, '#a8a29e'),
+
+    // 传送门
+    { id: 'w-portal-dock', type: 'portal', name: '老城码头传送门', x: -1000, y: 170, color: '#67e8f9', data: { targetId: 'w-set-north', requirement: '雾港通行证', twoWay: true } },
+    { id: 'w-portal-mist', type: 'portal', name: '雾中石门', x: -300, y: -820, color: '#a78bfa', data: { targetId: 'w-set-salt', requirement: '第三封信', twoWay: true } },
+
+    // 路引
+    { id: 'w-sign-old', type: 'sign', name: '老城路引', x: -500, y: 40, color: '#fbbf24', data: { direction: '←', destination: '雾港老城', distance: 300 } },
+    { id: 'w-sign-clock', type: 'sign', name: '钟楼路引', x: 300, y: -230, color: '#fbbf24', data: { direction: '→', destination: '钟楼集', distance: 180 } },
+    { id: 'w-sign-north', type: 'sign', name: '北岸路引', x: 620, y: -640, color: '#fbbf24', data: { direction: '↗', destination: '北岸哨站', distance: 220 } },
+    { id: 'w-sign-salt', type: 'sign', name: '盐沼警示牌', x: -700, y: 560, color: '#fb7185', data: { direction: '↓', destination: '盐沼（危险）', distance: 260 } },
+
+    // 公告栏
+    {
+      id: 'w-board-old', type: 'bulletin', name: '老城布告栏', x: -700, y: 50, color: '#fbbf24',
+      data: {
+        posts: [
+          { id: 'p1', title: '寻人：巡夜人沈砚', kind: 'notice', content: '港务局悬赏知情者，赏金面议。' },
+          { id: 'p2', title: '悬赏：盐沼走私', kind: 'quest', content: '查获走私盐晶者，可到巡夜队领取赏金。' }
+        ]
+      }
+    },
+    {
+      id: 'w-board-clock', type: 'bulletin', name: '钟楼集告示板', x: 470, y: -300, color: '#fbbf24',
+      data: {
+        posts: [{ id: 'p3', title: '钟楼维修募捐', kind: 'quest', content: '阿禾在筹钱修钟，愿意帮忙的人请到修表铺。' }]
+      }
+    }
+  ]
+
+  return { name: '雾港群岛', scaleLabel: '1 格 ≈ 20 米', elements }
 }
 
 function starterCharacter(base, growth, name = '主角', color = '#7dd3fc') {
@@ -70,7 +343,8 @@ export function blankProject({ name = '未命名企划', meta = {}, modules = {}
       nodes: [{ id: 'n1', title: '开场', type: 'scene', act: 'act1', tension: 10, summary: '故事从这里开始。', text: '' }],
       edges: []
     },
-    cases: []
+    cases: [],
+    world: { name: `${name}的世界`, scaleLabel: '1 格 ≈ 20 米', elements: [] }
   }
 }
 
@@ -346,6 +620,7 @@ export function seedProject() {
       dummy: { id: 'dummy', name: '训练假人', base: { hp: 120, atk: 12, def: 8, spd: 10, crit: 0, critDmg: 1.5, acc: 0.9, dodge: 0, mag: 0, res: 0 }, growth: {} }
     },
     narrative: { startId: 'n1', nodes, edges },
-    cases
+    cases,
+    world: seedWorld()
   }
 }

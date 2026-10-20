@@ -9,6 +9,7 @@ import { simulate, matrix, resolveBattle, levelSweep, DEFAULT_CONFIG } from './e
 import { analyze, simulateRoute } from './engines/branch.js'
 import { runInference } from './engines/infer.js'
 import { buildBlueprint } from './engines/blueprint.js'
+import { analyzeWorld } from './engines/world.js'
 import { check as checkExpr, variablesOf, BUILTIN_FUNCTIONS } from './engines/expr.js'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -256,6 +257,12 @@ route('POST', /^\/api\/engine\/infer$/, async (req, res) => {
     effective = { ...caseData, clues: (caseData.clues || []).map((c) => (map.has(c.id) ? { ...c, found: map.get(c.id) } : c)) }
   }
   send(res, 200, runInference(effective, body.options || {}))
+})
+
+route('POST', /^\/api\/engine\/world$/, async (req, res) => {
+  const body = await readBody(req)
+  const project = projectOf(body, req).project
+  send(res, 200, analyzeWorld(project))
 })
 
 route('POST', /^\/api\/engine\/blueprint$/, async (req, res) => {

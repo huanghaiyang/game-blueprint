@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "游戏剧情叙事 / 角色设计 / 数值对抗 / 数值管理 / 分支演算 / 推理 / 走向蓝图 一体化工作台",
+  "description": "游戏剧情叙事 / 角色设计 / 数值对抗 / 数值管理 / 分支演算 / 开放世界 / 推理 / 走向蓝图 一体化工作台",
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "dev:web": "vite --config web/vite.config.js --configLoader runner",
@@ -14,6 +14,8 @@
     "reset": "node server/reset.js",
     "fix:sandbox": "node scripts/fix-sandbox.mjs",
     "audit": "node scripts/audit.mjs",
+    "qa:world": "node scripts/qa-world.mjs",
+    "qa:world:edit": "node scripts/qa-world-edit.mjs",
     "check:sensitive": "node scripts/check-sensitive.mjs",
     "test": "node server/tests/run.js"
   },

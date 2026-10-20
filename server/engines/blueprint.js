@@ -2,6 +2,7 @@
  * 走向蓝图：把叙事结构、分支质量、角色弧光、数值锚点汇总为可交付文档。
  */
 import { deriveAll, round } from './stats.js'
+import { analyzeWorld } from './world.js'
 
 const TYPE_LABEL = { scene: '场景', choice: '抉择', combat: '对抗', ending: '结局', hub: '枢纽' }
 const BLOCKS = '▁▂▃▄▅▆▇█'
@@ -154,6 +155,16 @@ export function buildBlueprint(project, branch = null) {
     maxLength: e.maxLength
   }))
 
+  const worldEnabled = project.meta?.modules?.world !== false
+  const world = worldEnabled && (project.world?.elements?.length || 0) > 0 ? analyzeWorld(project) : null
+  if (world) {
+    for (const w of world.warnings) {
+      if (w.level === 'error' || w.level === 'warn') {
+        warnings.push({ level: w.level, code: `WORLD_${w.code}`, message: `[开放世界] ${w.message}` })
+      }
+    }
+  }
+
   const blueprint = {
     title: project.name || '未命名企划',
     logline: project.meta?.logline || '',
@@ -167,6 +178,7 @@ export function buildBlueprint(project, branch = null) {
     arcs,
     numericAnchors,
     characters,
+    world,
     warnings,
     issues,
     summary: {
@@ -178,7 +190,10 @@ export function buildBlueprint(project, branch = null) {
       reachableEndings: branch?.summary?.endingReachable || 0,
       avgTension: nodes.length ? round(nodes.reduce((s, n) => s + (Number(n.tension) || 0), 0) / nodes.length, 1) : 0,
       avgPathLength: branch?.summary?.avgPathLength || 0,
-      entropy: branch?.summary?.avgBranchEntropy || 0
+      entropy: branch?.summary?.avgBranchEntropy || 0,
+      worldElements: world?.summary.elements || 0,
+      worldSettlements: world?.summary.settlements || 0,
+      worldQuests: world?.summary.quests || 0
     }
   }
   blueprint.markdown = generateMarkdown(project, blueprint)
@@ -250,6 +265,35 @@ export function generateMarkdown(project, bp) {
     L.push(`| ${n.name} | ${fmt(n.hp)} | ${fmt(n.atk)} | ${fmt(n.def)} | ${fmt(n.spd)} | ${fmt(n.metric)} |`)
   }
   L.push('')
+  if (bp.world) {
+    const w = bp.world
+    L.push('## 八、开放世界摘要', '')
+    L.push(`- 世界：${w.summary.name} ｜ 元素 ${w.summary.elements} 个 ｜ 聚落 ${w.summary.settlements}（安全 ${w.summary.safeSettlements} / 敌对 ${w.summary.hostileSettlements} / 中立 ${w.summary.neutralSettlements}）`)
+    L.push(`- NPC 对话 ${w.summary.dialogues} 条（其中针对特定角色 ${w.summary.specificDialogues} 条）｜ 任务 ${w.summary.quests} 个 ｜ 传送门 ${w.summary.validPortals}/${w.summary.portals} 可用`)
+    L.push(`- 地图范围：${Math.round(w.bounds.width)} × ${Math.round(w.bounds.height)} 世界单位 ｜ 已放置角色 ${w.summary.linkedCharacters}/${(project.characters || []).length}`)
+    L.push('')
+    if (w.settlements.length) {
+      L.push('| 聚落 | 阵营 | 敌对 | 安全区 | 增益 | 人口 | 附近 NPC |')
+      L.push('| --- | --- | --- | --- | --- | --- | --- |')
+      for (const s of w.settlements) {
+        L.push(`| ${s.name} | ${s.faction || '-'} | ${s.hostile ? '是' : '否'} | ${s.safeZone ? '是' : '否'} | ${(s.buffs || []).join('、') || '-'} | ${s.population || '-'} | ${s.npcCount} |`)
+      }
+      L.push('')
+    }
+    if (w.quests.length) {
+      L.push('### 任务派发', '')
+      L.push('| 任务 | 发布者 | 目标数 | 奖励 | 状态 |')
+      L.push('| --- | --- | --- | --- | --- |')
+      for (const q of w.quests) L.push(`| ${q.title} | ${q.npc} | ${q.objectives} | ${q.reward || '-'} | ${q.status} |`)
+      L.push('')
+    }
+    const worldRisks = w.warnings.filter((x) => x.level !== 'info')
+    if (worldRisks.length) {
+      L.push('### 世界待办', '')
+      for (const r of worldRisks.slice(0, 8)) L.push(`- [${r.level === 'error' ? '严重' : '警告'}] ${r.message}`)
+      L.push('')
+    }
+  }
   L.push('---')
   L.push(`_由 Game Story Studio 自动生成 · ${new Date().toISOString().slice(0, 10)}_`)
   return L.join('\n')

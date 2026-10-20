@@ -57,6 +57,11 @@ export function normalizeProject(p) {
       nodes: Array.isArray(base.narrative?.nodes) ? base.narrative.nodes : [],
       edges: Array.isArray(base.narrative?.edges) ? base.narrative.edges : []
     },
+    world: {
+      name: base.world?.name || '未命名世界',
+      scaleLabel: base.world?.scaleLabel || '1 格 ≈ 20 米',
+      elements: Array.isArray(base.world?.elements) ? base.world.elements : []
+    },
     cases
   }
 }

@@ -9,8 +9,9 @@ import Combat from './views/Combat.vue'
 import Branches from './views/Branches.vue'
 import Inference from './views/Inference.vue'
 import Blueprint from './views/Blueprint.vue'
+import World from './views/World.vue'
 
-const views = { dashboard: Dashboard, narrative: Narrative, characters: Characters, stats: Stats, combat: Combat, branches: Branches, inference: Inference, blueprint: Blueprint }
+const views = { dashboard: Dashboard, narrative: Narrative, characters: Characters, stats: Stats, combat: Combat, branches: Branches, inference: Inference, blueprint: Blueprint, world: World }
 const routes = Object.keys(views)
 
 const nav = [
@@ -20,6 +21,7 @@ const nav = [
   { id: 'stats', label: '数值管理', icon: '▤', hint: '属性、公式与成长' },
   { id: 'combat', label: '数值对抗', icon: '⚔', hint: '蒙特卡洛战斗演算' },
   { id: 'branches', label: '分支演算', icon: '⑂', hint: '路径、旗标与结局' },
+  { id: 'world', label: '开放世界', icon: '◍', hint: '无限画布大地图、聚落与 NPC 任务' },
   { id: 'inference', label: '推理', icon: '⌕', hint: '线索与可信度推理（可选）' },
   { id: 'blueprint', label: '走向蓝图', icon: '▦', hint: '结构总览与导出' }
 ]
@@ -31,6 +33,7 @@ const titles = {
   stats: ['数值管理', '属性体系、公式实验室与成长曲线'],
   combat: ['数值对抗', '回合制伤害模型与蒙特卡洛胜率'],
   branches: ['分支演算', '路径枚举、旗标依赖与结局覆盖'],
+  world: ['开放世界', '无限画布大地图、聚落状态、NPC 对话与任务派发'],
   inference: ['推理', '线索前向链、可信度与嫌疑排序'],
   blueprint: ['走向蓝图', '分幕结构、节奏曲线与可交付文档']
 }
@@ -53,7 +56,7 @@ const newProject = reactive({
   tone: '',
   logline: '',
   template: 'blank',
-  modules: { narrative: true, characters: true, stats: true, combat: true, branches: true, blueprint: true, inference: false }
+  modules: { narrative: true, characters: true, stats: true, combat: true, branches: true, blueprint: true, world: true, inference: false }
 })
 
 function syncRoute() {
@@ -111,7 +114,7 @@ function openNewProject() {
   newProject.tone = ''
   newProject.logline = ''
   newProject.template = 'blank'
-  newProject.modules = { narrative: true, characters: true, stats: true, combat: true, branches: true, blueprint: true, inference: false }
+  newProject.modules = { narrative: true, characters: true, stats: true, combat: true, branches: true, blueprint: true, world: true, inference: false }
   showNew.value = true
 }
 
@@ -195,6 +198,7 @@ onUnmounted(() => {
           <span v-if="n.id === 'narrative' && store.project" class="nav-badge">{{ store.project.narrative.nodes.length }}</span>
           <span v-else-if="n.id === 'characters' && store.project" class="nav-badge">{{ store.project.characters.length }}</span>
           <span v-else-if="n.id === 'inference' && store.project" class="nav-badge">{{ store.project.cases.length }}</span>
+          <span v-else-if="n.id === 'world' && store.project" class="nav-badge">{{ store.project.world?.elements?.length || 0 }}</span>
         </button>
       </div>
       <div class="sidebar-foot">

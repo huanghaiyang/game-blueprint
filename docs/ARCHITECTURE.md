@@ -8,12 +8,12 @@
   ▼
 Node HTTP 服务（server/index.js）
   ├─ 静态资源：dist/（生产）
-  ├─ 路由：多企划 CRUD + 6 类引擎
+  ├─ 路由：多企划 CRUD + 7 类引擎
   ├─ 持久化：data/projects/<id>.json（原子写 + 每企划 revision）
   └─ 引擎层（纯函数，无 IO）
        expr → stats → combat
        branch → blueprint
-       infer
+       infer / world
 ```
 
 设计原则：
@@ -56,6 +56,7 @@ Node HTTP 服务（server/index.js）
       "combat": true,
       "branches": true,
       "inference": true,
+      "world": true,
       "blueprint": true
     }
   },
@@ -81,14 +82,20 @@ Node HTTP 服务（server/index.js）
     "nodes": [ /* StoryNode */ ],
     "edges": [ /* StoryEdge */ ]
   },
+  "world": {
+    "name": "雾港群岛",
+    "scaleLabel": "1 格 ≈ 20 米",
+    "elements": [ /* WorldElement */ ]
+  },
   "cases": [ /* InferenceCase */ ]
 }
 ```
 
 ### 模块开关（`meta.modules`）
 
-- 键为路由名：`narrative` / `characters` / `stats` / `combat` / `branches` / `inference` / `blueprint`。
+- 键为路由名：`narrative` / `characters` / `stats` / `combat` / `branches` / `world` / `inference` / `blueprint`。
 - `false` 只影响入口与路由访问，数据仍保留；`dashboard` 始终可用。
+- **开放世界默认开启**：`DEFAULT_MODULES.world = true`；空白企划带空世界，演示企划带完整地图。
 - **推理默认关闭**：`DEFAULT_MODULES.inference = false`。演示企划显式开启；旧数据若已有案件则自动视为开启。
 - 路由守卫：当当前模块被关闭时，前端会提示并跳回总览；直接访问 URL 也不会渲染该模块。
 - `infer` 引擎本身不检查开关（服务端保持工具中立），是否启用由企划与前端负责。
@@ -227,6 +234,84 @@ Node HTTP 服务（server/index.js）
 - 规则只触发一次；`facts` 与 `not_xxx` 同时成立会记入矛盾。
 - 未触发且只差一个条件的规则会生成「待补线索」提示。
 
+### 2.5 OpenWorld（开放世界地图）
+
+地图是无限平面上的元素集合，坐标没有边界；前端 Canvas 2D 负责平移/缩放/绘制，数据只存世界坐标。
+
+```jsonc
+{
+  "world": {
+    "name": "雾港群岛",
+    "scaleLabel": "1 格 ≈ 20 米",
+    "elements": [
+      {
+        "id": "w-set-oldtown",
+        "type": "settlement",
+        "name": "雾港老城",
+        "x": -780, "y": -60, "radius": 300,
+        "color": "#67e8f9",
+        "data": {
+          "faction": "港务局",
+          "population": 4200,
+          "hostile": false,       // 敌对与否
+          "safeZone": true,       // 是否安全区
+          "buffs": [{ "name": "潮汐庇护", "desc": "每 10 秒恢复 2% 生命" }],
+          "services": ["商店", "铁匠", "酒馆", "任务"],
+          "notes": "……"
+        }
+      },
+      {
+        "id": "w-char-bailu",
+        "type": "character",
+        "name": "白鹭",
+        "x": -790, "y": -30,
+        "data": {
+          "characterId": "bai_lu",   // 可空：独立 NPC
+          "faction": "独立",
+          "level": 6,
+          "dialogues": [
+            {
+              "id": "d-bailu-shen",
+              "name": "只对沈砚说的话",
+              "audienceIds": ["shen_yan"], // 空数组 = 所有人可见
+              "lines": [{ "speaker": "白鹭", "text": "……" }],
+              "choices": [{ "label": "问第三封信", "response": "去钟楼集找阿禾。" }],
+              "quest": {
+                "id": "q-third-letter",
+                "title": "第三封信的线索",
+                "summary": "……",
+                "objectives": [{ "text": "前往钟楼集", "done": false }],
+                "reward": "雾港情报网通行证",
+                "status": "未接取"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "w-river-mist",
+        "type": "river",
+        "name": "雾河",
+        "x": -1500, "y": -520,
+        "points": [{ "x": 0, "y": 0 }, { "x": 280, "y": 160 }], // 相对 x/y
+        "data": { "width": 26 }
+      }
+    ]
+  }
+}
+```
+
+元素类型（13 类）：`settlement` 聚落、`character` 角色/NPC、`stronghold` 重要据点、`building` 建筑、`region` 特殊区域、`collectible` 收集物品、`bulletin` 公告栏、`sign` 路引、`portal` 传送门、`river` 河流、`mountain` 山川、`tree` 树木、`road` 道路。
+
+通用字段：
+
+- 点元素：`x / y`；区域元素：`radius`；河流/道路：`points`（相对 `x/y`）+ `data.width`。
+- `data` 按类型扩展；前端 `worldTypes.js` 定义默认值与分类，服务端不依赖前端字段。
+- 对话：`audienceIds` 过滤可见对象；`choices[].response` 是分支回应；`quest` 挂在对话上即「任务派发」。
+- 聚落：`hostile` 与 `safeZone` 独立存储；敌对聚落可在 UI 上强制取消安全区，但数据结构不隐式推导，便于表达「敌对但暂时停战」等状态。
+- 引用：`characterId` 指向 `characters[].id`；`narrativeNodeId` 指向 `narrative.nodes[].id`；`portal.targetId` 指向其他元素 id。
+- 体检（`world.js`）会检查：重复/缺失坐标、角色与剧情节点引用、空对话、空任务目标、聚落敌对 + 安全区冲突、传送门目标、收集物数量、路径点数量等。
+
 ## 3. 引擎接口
 
 ### `expr.js`
@@ -273,9 +358,17 @@ runInference(caseData, options) // { fired, facts, ranking, hints, contradiction
 ### `blueprint.js`
 
 ```js
-buildBlueprint(project, branchResult) // { acts, tensionCurve, keyBeats, routeTable, arcs, numericAnchors, warnings, markdown }
+buildBlueprint(project, branchResult) // { acts, tensionCurve, keyBeats, routeTable, arcs, numericAnchors, world, warnings, markdown }
 generateMarkdown(project, blueprint)
 ```
+
+### `world.js`
+
+```js
+analyzeWorld(project) // { summary, warnings, settlements, quests, dialogues, portals, charactersOnMap, charactersNotOnMap, bounds }
+```
+
+`summary` 含元素分类计数、聚落（安全/敌对/中立）、对话数（含特定对象）、任务数、传送门可用数、地图范围与错误/警告计数；蓝图会引用该结果生成「开放世界摘要」章节。
 
 ## 4. 保存协议
 
@@ -284,7 +377,7 @@ generateMarkdown(project, blueprint)
 - 服务端写入流程：写 `<id>.json.tmp` → `rename` 原子替换，保证崩溃时不产生半截文件。
 - 切换企划前会先 flush 当前企划的未保存修改，再加载目标企划。
 - 引擎调用前调用 `ensureSaved()`，保证「刚改完就演算」不会读到旧快照。
-- 新建企划：`blankProject()` 带通用属性/技能/战斗预设、一个初始角色与一个开场节点；也可用 `template:"clone"` 复制现有企划。
+- 新建企划：`blankProject()` 带通用属性/技能/战斗预设、一个初始角色、一个开场节点与空世界；也可用 `template:"clone"` 复制现有企划。
 - 演示数据重建：`POST /api/demo/reset`（演示企划专属按钮）。
 - 迁移：首次启动若 `data/projects/` 为空但存在旧 `data/project.json`，会自动迁移为 `proj-mist-harbor.json`。
 
@@ -298,4 +391,6 @@ generateMarkdown(project, blueprint)
 | 试玩模式 | 前端新增 `PlayView`，复用 `branchRoute` 按玩家选择推进 |
 | 状态效果 | 扩展 `combat.js` 的 combatant 状态机（护盾/持续伤害/控制），技能加 `effects` |
 | 案件编辑器 | 推理页增加规则表单，复用 `validateAttribute` 类似的语法校验 |
+| 大地图运行时 | 用 `portals`/`road` 建图做寻路与旅行时间；元素坐标可导出到 Unity/Godot 场景 |
+| 对话运行时 | 将 `dialogues` 导出为对话树（Yarn/Ink），`audienceIds` 映射为条件函数 |
 | 导出 PDF/PPT | 基于 `blueprint.markdown` 接 Markdown→PDF，或直接生成结构化 JSON 给设计工具 |

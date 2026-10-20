@@ -1,0 +1,401 @@
+<script setup>
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { store, navigate, ensureSaved, notify } from '../store'
+import { api } from '../api'
+import WorldCanvas from '../components/WorldCanvas.vue'
+import WorldInspector from '../components/WorldInspector.vue'
+import { WORLD_TYPES, WORLD_CATEGORIES, createElement, isPathType } from '../worldTypes'
+
+const p = computed(() => store.project)
+const world = computed(() => p.value.world)
+const elements = computed(() => world.value?.elements || [])
+const selectedId = ref(
+  [...elements.value]
+    .filter((e) => e.type === 'settlement')
+    .sort((a, b) => Math.hypot(a.x, a.y) - Math.hypot(b.x, b.y))[0]?.id ||
+    [...elements.value]
+      .filter((e) => e.type === 'character' && (e.data?.dialogues || []).length)
+      .sort((a, b) => Math.hypot(a.x, a.y) - Math.hypot(b.x, b.y))[0]?.id ||
+    ''
+)
+const selected = computed(() => elements.value.find((e) => e.id === selectedId.value) || null)
+const search = ref('')
+const category = ref('')
+const drawMode = ref('')
+const snap = ref(true)
+const showAdd = ref(false)
+const addMenuRef = ref(null)
+const canvasRef = ref(null)
+const analysis = ref(null)
+const analyzing = ref(false)
+let analysisTimer = null
+let addMenuHandler = null
+
+const typeCounts = computed(() => {
+  const out = {}
+  for (const t of Object.keys(WORLD_TYPES)) out[t] = 0
+  for (const el of elements.value) out[el.type] = (out[el.type] || 0) + 1
+  return out
+})
+
+const categoryCounts = computed(() => {
+  const out = { '': elements.value.length }
+  for (const cat of WORLD_CATEGORIES) {
+    out[cat] = Object.entries(WORLD_TYPES).filter(([, m]) => m.category === cat).reduce((s, [t]) => s + (typeCounts.value[t] || 0), 0)
+  }
+  return out
+})
+
+const visibleTypes = computed(() => {
+  const cats = category.value ? [category.value] : WORLD_CATEGORIES
+  return Object.entries(WORLD_TYPES).filter(([, m]) => cats.includes(m.category)).map(([t]) => t)
+})
+
+const addGroups = computed(() =>
+  WORLD_CATEGORIES.map((cat) => ({
+    name: cat,
+    types: Object.entries(WORLD_TYPES).filter(([, m]) => m.category === cat)
+  }))
+)
+
+const filteredList = computed(() => {
+  const q = search.value.trim().toLowerCase()
+  return elements.value
+    .filter((el) => visibleTypes.value.includes(el.type))
+    .filter((el) => {
+      if (!q) return true
+      const meta = WORLD_TYPES[el.type]
+      return `${el.name} ${meta?.label || ''} ${el.data?.characterId || ''}`.toLowerCase().includes(q)
+    })
+    .sort((a, b) => (a.type === b.type ? String(a.name).localeCompare(String(b.name), 'zh') : a.type.localeCompare(b.type)))
+})
+
+const stats = computed(() => ({
+  settlements: elements.value.filter((e) => e.type === 'settlement').length,
+  characters: elements.value.filter((e) => e.type === 'character').length,
+  quests: analysis.value?.summary?.quests || 0,
+  errors: analysis.value?.warnings?.filter((w) => w.level === 'error').length || 0,
+  warns: analysis.value?.warnings?.filter((w) => w.level === 'warn').length || 0
+}))
+
+function ensureElement(el) {
+  if (!el) return
+  const meta = WORLD_TYPES[el.type]
+  if (!meta) return
+  if (!el.data) el.data = {}
+  const defaults = structuredClone(meta.data)
+  for (const [k, v] of Object.entries(defaults)) if (el.data[k] === undefined) el.data[k] = v
+  if (meta.radius && el.radius == null) el.radius = meta.radius
+  if (meta.path && !Array.isArray(el.points)) el.points = []
+  if (el.type === 'character') {
+    if (!Array.isArray(el.data.dialogues)) el.data.dialogues = []
+    for (const d of el.data.dialogues) {
+      if (!Array.isArray(d.lines)) d.lines = []
+      if (!Array.isArray(d.choices)) d.choices = []
+      if (!Array.isArray(d.audienceIds)) d.audienceIds = []
+    }
+  }
+  if (el.type === 'settlement') {
+    if (!Array.isArray(el.data.buffs)) el.data.buffs = []
+    if (!Array.isArray(el.data.services)) el.data.services = []
+  }
+  if (el.type === 'bulletin' && !Array.isArray(el.data.posts)) el.data.posts = []
+}
+
+function selectElement(id, focus = true) {
+  selectedId.value = id || ''
+  const el = elements.value.find((e) => e.id === id)
+  if (el) {
+    ensureElement(el)
+    if (focus) nextTick(() => canvasRef.value?.focusOn(el))
+  }
+}
+
+function addElement(type, at = null) {
+  const center = at || canvasRef.value?.getCenter() || { x: 0, y: 0 }
+  const el = createElement(type, center.x + (Math.random() - 0.5) * 60, center.y + (Math.random() - 0.5) * 60)
+  if (type === 'river') { el.name = '新河流'; el.data.width = 22 }
+  if (type === 'road') { el.name = '新道路'; el.data.width = 7 }
+  if (type === 'character') el.name = '新 NPC'
+  if (type === 'settlement') el.name = '新聚落'
+  if (type === 'collectible') el.name = '新收集物'
+  if (!world.value.elements) world.value.elements = []
+  world.value.elements.push(el)
+  selectElement(el.id, false)
+  showAdd.value = false
+  notify(`已添加「${el.name}」，在右侧编辑详情`, 'ok', 2200)
+}
+
+function removeElement(id) {
+  world.value.elements = elements.value.filter((e) => e.id !== id)
+  if (selectedId.value === id) selectedId.value = ''
+  notify('元素已从地图移除')
+}
+
+function onMove({ id, x, y }) {
+  const el = elements.value.find((e) => e.id === id)
+  if (!el) return
+  el.x = x
+  el.y = y
+}
+
+function onPathComplete({ type, points }) {
+  if (!points?.length) return
+  const [first] = points
+  const el = createElement(type, first.x, first.y)
+  el.name = type === 'river' ? '新河流' : '新道路'
+  el.points = points.map((pt) => ({ x: pt.x - first.x, y: pt.y - first.y }))
+  el.data.width = type === 'river' ? 22 : 7
+  world.value.elements.push(el)
+  drawMode.value = ''
+  selectElement(el.id, false)
+  notify(`已绘制「${el.name}」（${points.length} 个控制点）`, 'ok', 2400)
+}
+
+function toggleDraw(type) {
+  drawMode.value = drawMode.value === type ? '' : type
+}
+
+function onNarrative(nodeId) {
+  store.selectedNodeId = nodeId
+  navigate('narrative')
+}
+
+async function analyze() {
+  analyzing.value = true
+  try {
+    await ensureSaved()
+    analysis.value = await api.world(store.activeId)
+  } catch (e) {
+    notify(`世界体检失败：${e.message}`, 'error')
+  } finally {
+    analyzing.value = false
+  }
+}
+
+function categoryLabel(cat) {
+  return cat || '全部'
+}
+
+function elementSubtitle(el) {
+  if (el.type === 'settlement') {
+    const d = el.data || {}
+    return `${d.hostile ? '敌对' : d.safeZone ? '安全区' : '中立'} · ${(d.faction || '无阵营')}`
+  }
+  if (el.type === 'character') return `${el.data?.faction || '无阵营'} · ${(el.data?.dialogues || []).length} 段对话`
+  if (el.type === 'region') return `${el.data?.regionType || '区域'} · 危险 ${el.data?.danger || 1}`
+  if (el.type === 'portal') return el.data?.targetId ? '已连接' : '未设置目的地'
+  if (isPathType(el.type)) return `${el.points?.length || 0} 个控制点`
+  return `${Math.round(el.x)}, ${Math.round(el.y)}`
+}
+
+function typeLabel(t) {
+  return WORLD_TYPES[t]?.label || t
+}
+
+watch(
+  () => world.value?.elements,
+  (v) => {
+    if (v) v.forEach(ensureElement)
+  },
+  { deep: false }
+)
+
+watch(
+  () => JSON.stringify(world.value?.elements || []),
+  () => {
+    clearTimeout(analysisTimer)
+    analysisTimer = setTimeout(() => {
+      if (store.ready) analyze()
+    }, 1600)
+  }
+)
+
+onMounted(async () => {
+  if (!p.value.world) p.value.world = { name: '新世界', scaleLabel: '1 格 ≈ 20 米', elements: [] }
+  elements.value.forEach(ensureElement)
+  await analyze()
+  addMenuHandler = (e) => {
+    if (addMenuRef.value && !addMenuRef.value.contains(e.target)) showAdd.value = false
+  }
+  document.addEventListener('click', addMenuHandler)
+})
+
+onBeforeUnmount(() => {
+  clearTimeout(analysisTimer)
+  if (addMenuHandler) document.removeEventListener('click', addMenuHandler)
+})
+</script>
+
+<template>
+  <div class="world-page">
+    <div class="world-layout">
+      <aside class="card side">
+        <div class="side-head">
+          <div class="card-title">世界地图</div>
+          <span class="badge">{{ elements.length }} 元素</span>
+        </div>
+        <div class="side-scroll">
+          <label class="field"><span class="label">世界名</span><input v-model="world.name" class="input slim" /></label>
+          <label class="field" style="margin-top: 8px"><span class="label">比例尺</span><input v-model="world.scaleLabel" class="input slim" /></label>
+
+          <div class="side-stats">
+            <div><b>{{ stats.settlements }}</b><span>聚落</span></div>
+            <div><b>{{ stats.characters }}</b><span>NPC</span></div>
+            <div><b>{{ stats.quests }}</b><span>任务</span></div>
+            <div class="warn"><b>{{ stats.errors + stats.warns }}</b><span>待办</span></div>
+          </div>
+
+          <input v-model="search" class="input slim" placeholder="搜索元素 / NPC / 类型…" style="margin: 10px 0" />
+          <div class="chips" style="margin-bottom: 8px">
+            <button v-for="cat in ['', ...WORLD_CATEGORIES]" :key="cat" class="chip" :class="{ cyan: category === cat }" @click="category = cat">
+              {{ categoryLabel(cat) }} <span class="dim">{{ categoryCounts[cat] || 0 }}</span>
+            </button>
+          </div>
+
+          <div class="el-list">
+            <button v-for="el in filteredList" :key="el.id" class="el-row" :class="{ active: el.id === selectedId }" :data-element-id="el.id" :data-type="el.type" @click="selectElement(el.id)">
+              <span class="el-icon" :style="{ color: el.color }">{{ WORLD_TYPES[el.type]?.icon }}</span>
+              <span class="grow">
+                <span class="small">{{ el.name }}</span>
+                <span class="tiny dim el-sub">{{ typeLabel(el.type) }} · {{ elementSubtitle(el) }}</span>
+              </span>
+              <span v-if="el.type === 'settlement'" class="dot" :class="el.data?.hostile ? 'hostile' : el.data?.safeZone ? 'safe' : 'neutral'"></span>
+            </button>
+            <div v-if="!filteredList.length" class="empty" style="padding: 18px">没有匹配的元素</div>
+          </div>
+
+          <div v-if="analysis?.quests?.length" class="side-block">
+            <div class="side-title">任务派发 <span class="badge">{{ analysis.quests.length }}</span></div>
+            <button v-for="q in analysis.quests" :key="q.id" class="quest-row" @click="selectElement(q.elementId)">
+              <div class="small">{{ q.title }}</div>
+              <div class="tiny dim">{{ q.npc }} · {{ q.objectives }} 个目标 · {{ q.status }}</div>
+            </button>
+          </div>
+
+          <div class="side-block">
+            <div class="row">
+              <span class="side-title" style="margin: 0">世界体检</span>
+              <button class="btn sm ghost right" :disabled="analyzing" @click="analyze">{{ analyzing ? '…' : '刷新' }}</button>
+            </div>
+            <div v-if="analysis" class="tiny dim" style="margin: 5px 0 7px">
+              元素 {{ analysis.summary.elements }} · 对话 {{ analysis.summary.dialogues }} · 特定对象 {{ analysis.summary.specificDialogues }} · 传送门 {{ analysis.summary.validPortals }}/{{ analysis.summary.portals }}
+            </div>
+            <div v-for="(w, i) in (analysis?.warnings || []).filter((x) => x.level !== 'info').slice(0, 5)" :key="i" class="warning-row" :class="w.level" @click="w.elementId && selectElement(w.elementId)">
+              <span>{{ w.level === 'error' ? '✕' : '!' }}</span>
+              <span class="tiny">{{ w.message }}</span>
+            </div>
+            <div v-if="analysis && !analysis.warnings.filter((x) => x.level !== 'info').length" class="notice ok" style="padding: 7px 9px">
+              <span>✓</span><div class="tiny">世界状态健康</div>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <section class="card map-card">
+        <div class="card-head map-head">
+          <div class="map-title">
+            <span class="card-title">开放世界</span>
+            <span class="card-sub">{{ world.name }} · {{ world.scaleLabel }}</span>
+          </div>
+          <div class="map-tools right">
+            <div ref="addMenuRef" class="add-wrap">
+              <button class="btn sm primary" @click.stop="showAdd = !showAdd">＋ 添加元素</button>
+              <div v-if="showAdd" class="add-menu" @click.stop>
+                <div v-for="group in addGroups" :key="group.name" class="add-group">
+                  <div class="add-group-title">{{ group.name }}</div>
+                  <button v-for="[type, meta] in group.types" :key="type" class="add-item" @click="addElement(type)">
+                    <span :style="{ color: meta.color }">{{ meta.icon }}</span>
+                    <span>{{ meta.label }}</span>
+                    <span class="tiny dim">{{ meta.path ? '绘制' : '' }}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+            <button class="btn sm" :class="{ primary: drawMode === 'river' }" @click="toggleDraw('river')">≈ 河流</button>
+            <button class="btn sm" :class="{ primary: drawMode === 'road' }" @click="toggleDraw('road')">╌ 道路</button>
+            <button class="btn sm ghost" @click="snap = !snap">{{ snap ? '网格吸附 开' : '网格吸附 关' }}</button>
+            <button class="btn sm ghost" @click="canvasRef?.fit()">⤢ 适应</button>
+            <button class="btn sm ghost" @click="canvasRef?.overview()">⬚ 全览</button>
+          </div>
+        </div>
+        <div class="map-body">
+          <WorldCanvas
+            ref="canvasRef"
+            :elements="elements"
+            :selected-id="selectedId"
+            :visible-types="visibleTypes"
+            :snap="snap"
+            :draw-mode="drawMode"
+            @select="(id) => selectElement(id, false)"
+            @move="onMove"
+            @path-complete="onPathComplete"
+            @path-cancel="drawMode = ''"
+          />
+        </div>
+      </section>
+
+      <WorldInspector
+        :element="selected"
+        :characters="p.characters"
+        :nodes="p.narrative.nodes"
+        :elements="elements"
+        @delete="removeElement"
+        @navigate-narrative="onNarrative"
+      />
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.world-page { height: calc(100vh - 112px); min-height: 620px; }
+.world-layout { display: grid; grid-template-columns: 218px minmax(0, 1fr) 352px; gap: 12px; height: 100%; min-height: 0; }
+.side { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.side-head { display: flex; align-items: center; gap: 8px; padding: 13px 14px; border-bottom: 1px solid var(--line); }
+.side-scroll { flex: 1; overflow: auto; padding: 12px 12px 16px; min-height: 0; }
+.side-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-top: 10px; }
+.side-stats > div { background: rgba(2, 6, 23, 0.35); border: 1px solid var(--line); border-radius: 7px; padding: 6px 5px; text-align: center; }
+.side-stats b { display: block; font-family: var(--mono); font-size: 14px; color: #e6fbff; font-weight: 500; }
+.side-stats span { font-size: 9px; color: var(--dim); }
+.side-stats .warn b { color: var(--amber); }
+.el-list { display: flex; flex-direction: column; gap: 2px; max-height: 340px; overflow: auto; padding-right: 2px; }
+.el-row { display: flex; align-items: center; gap: 7px; text-align: left; padding: 6px 7px; border-radius: 7px; border: 1px solid transparent; background: transparent; color: var(--text); cursor: pointer; }
+.el-row:hover { background: rgba(148, 163, 184, 0.06); }
+.el-row.active { border-color: rgba(103, 232, 249, 0.3); background: rgba(103, 232, 249, 0.08); }
+.el-icon { width: 18px; text-align: center; font-size: 14px; flex: 0 0 18px; }
+.el-sub { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dot { width: 6px; height: 6px; border-radius: 50%; flex: 0 0 6px; }
+.dot.safe { background: var(--green); box-shadow: 0 0 6px rgba(134, 239, 172, 0.7); }
+.dot.hostile { background: var(--rose); box-shadow: 0 0 6px rgba(251, 113, 133, 0.7); }
+.dot.neutral { background: var(--amber); }
+.side-block { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.side-title { font-size: 10.5px; letter-spacing: 0.1em; color: var(--dim); text-transform: uppercase; }
+.quest-row { width: 100%; text-align: left; padding: 6px 7px; border-radius: 7px; border: 1px solid var(--line); background: rgba(2, 6, 23, 0.3); color: var(--text); cursor: pointer; margin-top: 5px; }
+.quest-row:hover { border-color: rgba(251, 191, 36, 0.35); }
+.warning-row { display: flex; gap: 6px; align-items: flex-start; padding: 5px 6px; border-radius: 6px; margin-top: 4px; cursor: pointer; background: rgba(2, 6, 23, 0.3); }
+.warning-row.warn { color: #fde68a; border-left: 2px solid rgba(251, 191, 36, 0.6); }
+.warning-row.error { color: #fecdd3; border-left: 2px solid rgba(251, 113, 133, 0.7); }
+.map-card { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.map-head { flex-wrap: wrap; gap: 8px; }
+.map-title { min-width: 0; }
+.map-tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.map-body { flex: 1; min-height: 0; }
+.add-wrap { position: relative; }
+.add-menu { position: absolute; right: 0; top: calc(100% + 7px); width: 290px; max-height: 420px; overflow: auto; z-index: 20; padding: 8px; border-radius: 11px; border: 1px solid var(--line-strong); background: #0e1727; box-shadow: 0 22px 60px rgba(2, 6, 23, 0.8); }
+.add-group + .add-group { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.add-group-title { font-size: 10px; color: var(--dim); padding: 2px 6px 5px; letter-spacing: 0.1em; }
+.add-item { display: flex; align-items: center; gap: 7px; width: 100%; padding: 6px 7px; border: none; border-radius: 6px; background: transparent; color: var(--text); text-align: left; cursor: pointer; font-size: 12px; }
+.add-item:hover { background: rgba(103, 232, 249, 0.08); }
+@media (max-width: 1280px) {
+  .world-layout { grid-template-columns: 210px minmax(0, 1fr); height: auto; }
+  .world-page { height: auto; }
+  .side { min-height: 520px; }
+  .map-card { min-height: 620px; }
+  .world-layout > .inspector { grid-column: 1 / -1; max-height: 560px; }
+}
+@media (max-width: 900px) {
+  .world-layout { grid-template-columns: 1fr; }
+  .side { min-height: 360px; }
+  .map-card { min-height: 500px; }
+}
+</style>

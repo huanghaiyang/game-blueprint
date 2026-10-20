@@ -10,7 +10,7 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const APP = process.argv[2] || 'http://127.0.0.1:3087'
 const CDP = process.argv[3] || 'http://127.0.0.1:9333'
 const OUT = path.join(ROOT, 'artifacts')
-const ROUTES = ['dashboard', 'narrative', 'characters', 'stats', 'combat', 'branches', 'inference', 'blueprint']
+const ROUTES = ['dashboard', 'narrative', 'characters', 'stats', 'combat', 'branches', 'world', 'inference', 'blueprint']
 
 await mkdir(OUT, { recursive: true })
 

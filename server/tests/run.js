@@ -7,6 +7,7 @@ import { simulate, matrix, resolveBattle } from '../engines/combat.js'
 import { analyze, simulateRoute } from '../engines/branch.js'
 import { runInference } from '../engines/infer.js'
 import { buildBlueprint } from '../engines/blueprint.js'
+import { analyzeWorld } from '../engines/world.js'
 
 let pass = 0
 const failures = []
@@ -181,7 +182,46 @@ test('发现叙事风险', () => {
   assert.ok(bp2.issues.some((i) => i.code === 'UNREACHABLE'), '应报告不可达节点')
 })
 
-console.log('\n[7] 多企划与模块开关')
+console.log('\n[7] 开放世界')
+test('演示世界覆盖主要元素与聚落状态', () => {
+  const w = analyzeWorld(project)
+  assert.ok(w.summary.elements >= 50, `elements=${w.summary.elements}`)
+  assert.equal(w.summary.settlements, 4)
+  assert.equal(w.summary.hostileSettlements, 1)
+  assert.equal(w.summary.safeSettlements, 3)
+  assert.equal(w.summary.quests, 5)
+  assert.ok(w.summary.dialogues >= 8)
+  assert.ok(w.summary.specificDialogues >= 4)
+  assert.equal(w.summary.validPortals, w.summary.portals)
+})
+test('NPC 对话包含特定对象、分支与任务', () => {
+  const w = analyzeWorld(project)
+  const bai = project.world.elements.find((e) => e.id === 'w-char-bailu')
+  const specific = bai.data.dialogues.find((d) => d.audienceIds.includes('shen_yan'))
+  assert.ok(specific, '白鹭应有只对沈砚开放的对话')
+  assert.ok(specific.choices.length >= 2, '应有分支选项')
+  assert.ok(specific.quest.objectives.length >= 3, '应有任务派发')
+  assert.ok(w.quests.some((q) => q.title === '第三封信的线索'))
+  assert.ok(w.dialogues.some((d) => d.audience.includes('沈砚')))
+})
+test('世界体检无严重错误，且能发现空世界', () => {
+  const w = analyzeWorld(project)
+  assert.equal(w.warnings.filter((x) => x.level === 'error').length, 0)
+  const blank = blankProject({ name: '空世界' })
+  const empty = analyzeWorld(blank)
+  assert.ok(empty.warnings.some((x) => x.code === 'EMPTY_WORLD'))
+  assert.equal(empty.summary.elements, 0)
+})
+test('走向蓝图包含开放世界章节', () => {
+  const bp = buildBlueprint(project, branch)
+  assert.ok(bp.world)
+  assert.equal(bp.summary.worldSettlements, 4)
+  assert.ok(bp.markdown.includes('## 八、开放世界摘要'))
+  assert.ok(bp.markdown.includes('雾港老城'))
+  assert.ok(bp.markdown.includes('第三封信的线索'))
+})
+
+console.log('\n[8] 多企划与模块开关')
 test('演示企划启用推理模块', () => {
   assert.equal(project.meta.modules.inference, true)
   assert.equal(project.meta.modules.narrative, true)
@@ -195,12 +235,13 @@ test('空白企划默认关闭推理且可立即使用', () => {
   assert.equal(blank.characters.length, 1, '应带一个可改名的初始角色')
   assert.equal(blank.narrative.nodes.length, 1)
   assert.equal(blank.cases.length, 0)
+  assert.deepEqual(blank.world.elements, [])
   const d = deriveAll(blank, blank.characters[0], 1)
   assert.deepEqual(d.errors, [])
   assert.ok(d.values.power > 0)
 })
 test('可选模块列表完整', () => {
-  assert.deepEqual(Object.keys(DEFAULT_MODULES).sort(), ['blueprint', 'branches', 'characters', 'combat', 'dashboard', 'inference', 'narrative', 'stats'])
+  assert.deepEqual(Object.keys(DEFAULT_MODULES).sort(), ['blueprint', 'branches', 'characters', 'combat', 'dashboard', 'inference', 'narrative', 'stats', 'world'])
   const blank = blankProject({ name: '无推理', modules: { inference: true } })
   assert.equal(blank.meta.modules.inference, true)
 })

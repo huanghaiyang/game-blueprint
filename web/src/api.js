@@ -34,6 +34,7 @@ export const api = {
   levelSweep: (payload) => req('/engine/combat/level', { method: 'POST', body: payload }),
   branch: (projectId, options = {}) => req('/engine/branch', { method: 'POST', body: { projectId, options } }),
   branchRoute: (projectId, edgeIds) => req('/engine/branch/route', { method: 'POST', body: { projectId, edgeIds } }),
+  world: (projectId) => req('/engine/world', { method: 'POST', body: { projectId } }),
   infer: (projectId, caseId, clueOverrides = null) =>
     req('/engine/infer', { method: 'POST', body: { projectId, caseId, clueOverrides } }),
   blueprint: (projectId) => req('/engine/blueprint', { method: 'POST', body: { projectId } })
