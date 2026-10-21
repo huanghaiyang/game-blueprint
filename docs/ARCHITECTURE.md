@@ -405,6 +405,56 @@ README.txt      # 人类可读说明
   - `overwrite`：必须提供目标 `targetId` 与当前 `baseRevision`，覆盖后保留版本历史并追加 `import` 版本。
 - 导入写库仍走 `store.save/importProject`，因此会触发正常的 revision 与历史记录。
 
+### 2.9 叙事运营（Studio）
+
+企划新增一组制作期字段，均由 `server/studio.js` 补齐默认值：
+
+```jsonc
+{
+  "localization": {
+    "defaultLocale": "zh-CN",
+    "locales": [{ "id": "en", "name": "English" }],
+    "strings": { "node:n1:title": { "en": "Prologue · Night Train" } },
+    "voice": { "dlg:w-char-bailu:d-bailu-all:line:0": "recorded" }
+  },
+  "assets": [
+    { "id": "asset-bailu", "name": "白鹭立绘", "type": "portrait", "status": "ready",
+      "path": "assets/characters/bailu.png", "owner": "美术", "tags": ["角色"],
+      "linkedModule": "characters", "linkedId": "bai_lu", "notes": "" }
+  ],
+  "production": {
+    "tasks": [{ "id": "task-1", "title": "第一幕白盒", "module": "narrative", "refId": "act1",
+      "status": "todo|doing|review|done", "owner": "", "estimate": 5, "priority": "high", "sourceKey": "act:act1" }],
+    "milestones": []
+  },
+  "storyboard": {
+    "beats": [{ "id": "beat-1", "title": "雨夜列车进站", "actId": "act1", "nodeId": "n1",
+      "duration": 18, "camera": "…", "audio": "…", "animation": "…", "vfx": "…", "notes": "" }]
+  },
+  "storylets": [
+    { "id": "st-1", "name": "雾中的第二封信", "conditions": [{ "expr": "flags.has_third_letter == true", "label": "持有信" }],
+      "effects": { "flags": { "fog_second_letter": true }, "quests": { "q-third-letter": "active" } },
+      "weight": 3, "salience": 8, "once": true, "cooldown": 0, "tags": [] }
+  ],
+  "reviews": [
+    { "id": "rev-1", "module": "narrative", "entityId": "n9", "entityLabel": "白鹭的交易",
+      "author": "叙事总监", "text": "…", "status": "open", "createdAt": "…", "replies": [] }
+  ],
+  "access": { "contentWarnings": ["失踪"], "textSpeed": 32, "autoDelay": 2.5, "fontScale": 1, "reduceMotion": false }
+}
+```
+
+- **运行时**：`runtime.js` 把 `narrative.nodes/edges` 编译为 `{nodes, start, endings, quests, dialogues}`；`startRuntime` / `stepRuntime` 维护 `{nodeId, flags, quests, visited, log, ended}`。选项条件用 `expr.js` 求值；节点 `setFlags`、边 `effects.flags/quests` 立即生效。
+- **本地化 key**：按实体 ID 生成稳定 key（`node:<id>:title`、`char:<id>:name`、`dlg:<element>:<dialogue>:line:<i>`、`quest:<element>:<dialogue>:<quest>:title` 等）；译文写入 `localization.strings[key][locale]`。CSV 列固定为 `key,module,entity,field,source,<locale...>`。
+- **配音状态**：`localization.voice[lineKey]` 为 `todo|recorded|missing`，仅对对话行 key 生效。
+- **资产**：登记资源路径/GUID 与关联内容，不复制二进制；资产体检检查缺失路径、角色立绘、NPC 对话配音。
+- **制作**：`production.js` 汇总任务、资产、本地化、评审与结构错误，计算 0–100 就绪度；`generateTasks` 从幕/角色/任务/演出/Storylet 生成任务并去重 `sourceKey`。
+- **演出**：`storyboard.beats` 是设计期节拍表，不是引擎 Sequencer；按数组顺序与 `duration` 展示时间线。
+- **Storylet**：条件全满足才可用，分数 = `salience × weight`；`once` 需调用方传 `seen`，效果支持 flags/quests。
+- **评审**：评论按模块/实体记录，`open|resolved` 与回复数组；当前是单人/本地评审，不是多用户实时协作。
+- **版本差异**：`version.js` 的 `studio` 模块比较本地化语言/字符串数量、资产、任务、演出、Storylet 与评审的实体差异；History 会显示对应计数。
+- **模块开关**：`DEFAULT_MODULES.studio` 默认开启；关闭后侧栏隐藏但数据保留。
+
 ## 3. 引擎接口
 
 ### `expr.js`
@@ -480,6 +530,43 @@ parseGstory(buffer)                              // { manifest, project, validat
 planImport(archive, existingProjects, { name })  // { conflicts, suggestedName, canOverwrite, existing }
 ```
 
+### `runtime.js`
+
+```js
+buildRuntime(project)                         // { nodes, start, endings, quests, dialogues, counts }
+startRuntime(project, { startId, flags })     // { runtime, state, view }
+stepRuntime(project, state, edgeId)           // { runtime, state, view }
+```
+
+### `localization.js`
+
+```js
+extractStrings(project)      // [{ key, module, entityId, entityLabel, field, source }]
+localizationReport(project)  // { entries, locales, summary, voice, modules, total }
+toCsv(report) / parseCsv(text)
+```
+
+### `storylets.js`
+
+```js
+evaluateStorylet(storylet, flags)             // { eligible, score, conditions, reason }
+selectStorylets(project, { flags, seen })     // { eligible, rejected, all, summary }
+applyStorylet(state, storylet)                // 运行时状态写入
+```
+
+### `production.js`
+
+```js
+productionReport(project)   // { readiness, tasks, assets, localization, reviews, content, missing }
+generateTasks(project)      // 从内容生成、按 sourceKey 去重
+```
+
+### `analytics.js`
+
+```js
+analytics(project) // { summary, choices, endings, quests, dialogues, issues, flags, tension }
+```
+
 ## 4. MCP 层
 
 `mcp/` 是一个零第三方依赖的 MCP stdio 服务，协议层与业务层分离：
@@ -511,6 +598,9 @@ mcp/api.mjs      本地 REST 客户端，读-改-写、409 重试、项目解析
 - `.gstory` 导入预览只解析不写库；确认导入才走 `importProject` / `save`，覆盖模式额外校验 `baseRevision`。
 - 切换企划前会先 flush 当前企划的未保存修改，再加载目标企划。
 - 引擎调用前调用 `ensureSaved()`，保证「刚改完就演算」不会读到旧快照。
+- Studio 的本地化译文、资产、任务、演出、Storylet、评审都写在企划 JSON 中，跟随普通防抖保存与版本历史。
+- 试玩状态与存档槽只存在浏览器 `localStorage`（`gss.playtest.<projectId>`），不写入企划；运行时通过 `/api/engine/runtime` 编译/推进，避免前后端条件语义分叉。
+- 本地化/资产/制作/分析报告调用前同样 `ensureSaved()`，保证报告基于最新快照。
 - 新建企划：`blankProject()` 带通用属性/技能/战斗预设、一个初始角色、一个开场节点与空世界；也可用 `template:"clone"` 复制现有企划。
 - 演示数据重建：`POST /api/demo/reset`（演示企划专属按钮）。
 - 迁移：首次启动若 `data/projects/` 为空但存在旧 `data/project.json`，会自动迁移为 `proj-mist-harbor.json`。

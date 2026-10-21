@@ -3,6 +3,7 @@ import { mkdir, readdir, readFile, access, unlink } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { seedProject, blankProject, DEFAULT_MODULES, DEFAULT_WORLD_CATEGORIES } from './seed.js'
+import { normalizeStudio } from './studio.js'
 import { ensureHistory, recordVersion, checkpoint, resetHistory, deleteHistory, getVersion } from './versions.js'
 import { atomicWrite } from './atomic.js'
 
@@ -66,7 +67,8 @@ export function normalizeProject(p) {
       customTypes: Array.isArray(base.world?.customTypes) ? base.world.customTypes : [],
       elements: Array.isArray(base.world?.elements) ? base.world.elements : []
     },
-    cases
+    cases,
+    ...normalizeStudio(base)
   }
 }
 

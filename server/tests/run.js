@@ -10,6 +10,11 @@ import { buildBlueprint } from '../engines/blueprint.js'
 import { analyzeWorld } from '../engines/world.js'
 import { compareProjects } from '../engines/version.js'
 import { buildGstory, parseGstory, planImport } from '../engines/gstory.js'
+import { buildRuntime, startRuntime, stepRuntime } from '../engines/runtime.js'
+import { localizationReport, toCsv } from '../engines/localization.js'
+import { analytics } from '../engines/analytics.js'
+import { selectStorylets } from '../engines/storylets.js'
+import { productionReport } from '../engines/production.js'
 
 let pass = 0
 const failures = []
@@ -243,7 +248,7 @@ test('空白企划默认关闭推理且可立即使用', () => {
   assert.ok(d.values.power > 0)
 })
 test('可选模块列表完整', () => {
-  assert.deepEqual(Object.keys(DEFAULT_MODULES).sort(), ['blueprint', 'branches', 'characters', 'combat', 'dashboard', 'inference', 'narrative', 'stats', 'world'])
+  assert.deepEqual(Object.keys(DEFAULT_MODULES).sort(), ['blueprint', 'branches', 'characters', 'combat', 'dashboard', 'inference', 'narrative', 'stats', 'studio', 'world'])
   const blank = blankProject({ name: '无推理', modules: { inference: true } })
   assert.equal(blank.meta.modules.inference, true)
 })
@@ -304,6 +309,65 @@ test('损坏的 .gstory 会被拒绝', () => {
   const built = buildGstory(project, { revision: 1 })
   const corrupted = built.buffer.subarray(0, built.buffer.length - 10)
   assert.throws(() => parseGstory(corrupted))
+})
+
+console.log('\n[10] 叙事运营')
+test('运行时编译与选择推进', () => {
+  const runtime = buildRuntime(project)
+  assert.ok(runtime.nodes.length >= 15)
+  assert.ok(runtime.dialogues.length >= 5)
+  const out = startRuntime(project)
+  assert.equal(out.view.id, 'n1')
+  assert.ok(out.view.choices.length >= 1)
+  const choice = out.view.choices[0]
+  const next = stepRuntime(project, out.state, choice.id)
+  assert.notEqual(next.view.id, 'n1')
+  assert.ok(next.state.log.length >= 3)
+})
+test('本地化抽取、覆盖率与 CSV', () => {
+  const report = localizationReport(project)
+  assert.ok(report.total > 250)
+  assert.equal(report.locales.length, 2)
+  assert.ok(report.entries.some((e) => e.key === 'node:n1:title'))
+  assert.ok(report.summary.some((s) => s.id === 'en'))
+  const csv = toCsv(report)
+  assert.ok(csv.startsWith('"key","module"'))
+  assert.ok(csv.includes('node:n1:title'))
+})
+test('选择热力、结局与内容覆盖', () => {
+  const report = analytics(project)
+  assert.ok(report.summary.paths > 0)
+  assert.ok(report.choices.length >= 5)
+  assert.ok(report.endings.length >= 3)
+  assert.ok(report.choices.every((c) => c.options.every((o) => o.share >= 0 && o.share <= 100)))
+})
+test('Storylet 条件筛选与显著度排序', () => {
+  const out = selectStorylets(project, { flags: { has_third_letter: true, bailu_ally: true } })
+  assert.ok(out.eligible.length >= 1)
+  assert.ok(out.eligible.some((s) => s.name.includes('第二封信')))
+  assert.ok(out.eligible[0].score >= out.eligible[out.eligible.length - 1].score)
+  const denied = selectStorylets(project, { flags: {} })
+  assert.ok(denied.rejected.length >= 1)
+})
+test('制作就绪度与缺口报告', () => {
+  const report = productionReport(project)
+  assert.ok(report.tasks.total >= 3)
+  assert.ok(report.assets.total >= 3)
+  assert.ok(report.readiness >= 0 && report.readiness <= 100)
+  assert.ok(report.missingTotal >= 1)
+  assert.ok(report.localization.locales.length === 2)
+})
+test('叙事运营数据进入版本差异', () => {
+  const from = seedProject()
+  const to = structuredClone(from)
+  to.assets[0].status = 'missing'
+  to.production.tasks[0].status = 'done'
+  to.localization.locales.push({ id: 'fr', name: 'Français' })
+  const d = compareProjects(from, to, {})
+  assert.ok(d.modules.studio.changed)
+  assert.equal(d.modules.studio.assets.updated.length, 1)
+  assert.equal(d.modules.studio.tasks.updated.length, 1)
+  assert.equal(d.modules.studio.localization.locales.to, 3)
 })
 
 console.log(`\n结果：${pass} 通过，${failures.length} 失败\n`)

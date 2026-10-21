@@ -10,7 +10,8 @@ const MODULE_LABEL = {
   branches: '分支演算（派生）',
   blueprint: '走向蓝图',
   world: '开放世界',
-  cases: '推理案件'
+  cases: '推理案件',
+  studio: '叙事运营'
 }
 
 const IMPACT_RULES = {
@@ -349,7 +350,37 @@ export function compareProjects(fromProject, toProject, versionMeta = {}) {
     extra: { derived: true }
   })
 
-  const modules = { meta: metaModule, narrative, characters, skills, stats, combat, branches, blueprint, world, cases }
+  const studioComparable = {
+    localization: from.localization,
+    assets: from.assets,
+    tasks: from.production,
+    beats: from.storyboard,
+    storylets: from.storylets,
+    reviews: from.reviews
+  }
+  const studioComparableTo = {
+    localization: to.localization,
+    assets: to.assets,
+    tasks: to.production,
+    beats: to.storyboard,
+    storylets: to.storylets,
+    reviews: to.reviews
+  }
+  const studio = moduleResult('studio', !same(studioComparable, studioComparableTo), {
+    extra: {
+      assets: entityDiff(arr(from.assets), arr(to.assets)),
+      tasks: entityDiff(arr(from.production?.tasks), arr(to.production?.tasks)),
+      beats: entityDiff(arr(from.storyboard?.beats), arr(to.storyboard?.beats)),
+      storylets: entityDiff(arr(from.storylets), arr(to.storylets)),
+      reviews: entityDiff(arr(from.reviews), arr(to.reviews)),
+      localization: {
+        locales: { from: arr(from.localization?.locales).length, to: arr(to.localization?.locales).length },
+        strings: { from: Object.keys(obj(from.localization?.strings)).length, to: Object.keys(obj(to.localization?.strings)).length }
+      }
+    }
+  })
+
+  const modules = { meta: metaModule, narrative, characters, skills, stats, combat, branches, blueprint, world, cases, studio }
   const changedModules = Object.values(modules).filter((m) => m.changed)
   const counts = changedModules.reduce(
     (acc, m) => {

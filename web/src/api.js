@@ -70,7 +70,18 @@ export const api = {
   },
   infer: (projectId, caseId, clueOverrides = null) =>
     req('/engine/infer', { method: 'POST', body: { projectId, caseId, clueOverrides } }),
-  blueprint: (projectId) => req('/engine/blueprint', { method: 'POST', body: { projectId } })
+  blueprint: (projectId) => req('/engine/blueprint', { method: 'POST', body: { projectId } }),
+  runtimeStart: (projectId, startId = '', flags = {}) =>
+    req('/engine/runtime', { method: 'POST', body: { projectId, action: 'start', startId, flags } }),
+  runtimeView: (projectId) => req('/engine/runtime', { method: 'POST', body: { projectId, action: 'view' } }),
+  runtimeStep: (projectId, state, edgeId) =>
+    req('/engine/runtime', { method: 'POST', body: { projectId, action: 'step', state, edgeId } }),
+  localization: (projectId) => req('/engine/localization', { method: 'POST', body: { projectId } }),
+  localizationCsv: (projectId) => req('/engine/localization', { method: 'POST', body: { projectId, format: 'csv' } }),
+  analytics: (projectId) => req('/engine/analytics', { method: 'POST', body: { projectId } }),
+  storylets: (projectId, flags = {}, seen = []) => req('/engine/storylets', { method: 'POST', body: { projectId, flags, seen } }),
+  production: (projectId) => req('/engine/production', { method: 'POST', body: { projectId } }),
+  generateTasks: (projectId) => req('/engine/production', { method: 'POST', body: { projectId, action: 'generate' } })
 }
 
 async function parseRaw(res) {

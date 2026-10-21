@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "游戏剧情叙事 / 角色设计 / 数值对抗 / 数值管理 / 分支演算 / 开放世界 / 历史版本 / 导入导出 / 推理 / 走向蓝图 一体化工作台",
+  "description": "游戏剧情叙事 / 角色设计 / 数值对抗 / 数值管理 / 分支演算 / 开放世界 / 叙事运营 / 历史版本 / 导入导出 / 推理 / 走向蓝图 一体化工作台",
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "dev:web": "vite --config web/vite.config.js --configLoader runner",

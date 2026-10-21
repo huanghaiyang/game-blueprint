@@ -325,6 +325,17 @@ onMounted(load)
                     </div>
                   </template>
 
+                  <template v-else-if="m.key === 'studio'">
+                    <div class="mini-stats">
+                      <span>资产 {{ m.assets?.before || 0 }} → {{ m.assets?.after || 0 }}</span>
+                      <span>任务 {{ m.tasks?.before || 0 }} → {{ m.tasks?.after || 0 }}</span>
+                      <span>演出 {{ m.beats?.before || 0 }} → {{ m.beats?.after || 0 }}</span>
+                      <span>Storylet {{ m.storylets?.before || 0 }} → {{ m.storylets?.after || 0 }}</span>
+                      <span>评论 {{ m.reviews?.before || 0 }} → {{ m.reviews?.after || 0 }}</span>
+                    </div>
+                    <div class="mini-stats"><span>语言 {{ m.localization?.locales?.from || 0 }} → {{ m.localization?.locales?.to || 0 }}</span><span>字符串 {{ m.localization?.strings?.from || 0 }} → {{ m.localization?.strings?.to || 0 }}</span></div>
+                  </template>
+
                   <template v-else-if="m.key === 'cases'">
                     <div class="mini-stats"><span>案件 {{ m.counts.before }} → {{ m.counts.after }}</span><span>线索 {{ m.clues || 0 }}</span><span>规则 {{ m.rules || 0 }}</span></div>
                   </template>

@@ -55,7 +55,8 @@ const modules = [
   { id: 'branches', route: 'branches', icon: '⑂', title: '分支演算', desc: '路径枚举、概率质量、旗标依赖、死路与环检测，可逐步演算。', tone: '#86efac' },
   { id: 'world', route: 'world', icon: '◍', title: '开放世界', desc: '无限画布大地图：聚落状态、NPC 特定对话、任务派发与传送门。', tone: '#5eead4' },
   { id: 'inference', route: 'inference', icon: '⌕', title: '推理', desc: '线索前向链与可信度传播，嫌疑排序、矛盾检测与待补线索。', tone: '#c084fc' },
-  { id: 'blueprint', route: 'blueprint', icon: '▦', title: '走向蓝图', desc: '分幕结构、节奏曲线、结局覆盖，一键生成可交付 Markdown。', tone: '#67e8f9' }
+  { id: 'blueprint', route: 'blueprint', icon: '▦', title: '走向蓝图', desc: '分幕结构、节奏曲线、结局覆盖，一键生成可交付 Markdown。', tone: '#67e8f9' },
+  { id: 'studio', route: 'studio', icon: '◫', title: '叙事运营', desc: '试玩存档、本地化、资产、制作看板、演出、动态叙事与评审。', tone: '#fbbf24' }
 ]
 const enabledModules = computed(() => modules.filter((m) => p.value?.meta?.modules?.[m.id] !== false))
 

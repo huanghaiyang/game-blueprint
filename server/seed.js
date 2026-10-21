@@ -1,4 +1,5 @@
 /** 演示企划：雾港回声 —— 剧情、角色、数值、分支、推理、蓝图全量示例数据。 */
+import { defaultStudio, demoStudio } from './studio.js'
 
 /** 模块开关默认值：推理默认关闭（并非所有企划都需要推理）。 */
 export const DEFAULT_MODULES = {
@@ -10,7 +11,8 @@ export const DEFAULT_MODULES = {
   branches: true,
   blueprint: true,
   world: true,
-  inference: false
+  inference: false,
+  studio: true
 }
 
 /* ---------------- 开放世界演示地图 ---------------- */
@@ -350,7 +352,8 @@ export function blankProject({ name = '未命名企划', meta = {}, modules = {}
       edges: []
     },
     cases: [],
-    world: { name: `${name}的世界`, scaleLabel: '1 格 ≈ 20 米', categories: DEFAULT_WORLD_CATEGORIES.map((c) => ({ ...c })), customTypes: [], elements: [] }
+    world: { name: `${name}的世界`, scaleLabel: '1 格 ≈ 20 米', categories: DEFAULT_WORLD_CATEGORIES.map((c) => ({ ...c })), customTypes: [], elements: [] },
+    ...defaultStudio()
   }
 }
 
@@ -627,6 +630,7 @@ export function seedProject() {
     },
     narrative: { startId: 'n1', nodes, edges },
     cases,
-    world: seedWorld()
+    world: seedWorld(),
+    ...demoStudio()
   }
 }

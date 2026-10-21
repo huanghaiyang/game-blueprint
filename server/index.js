@@ -13,6 +13,11 @@ import { analyze, simulateRoute } from './engines/branch.js'
 import { runInference } from './engines/infer.js'
 import { buildBlueprint } from './engines/blueprint.js'
 import { analyzeWorld } from './engines/world.js'
+import { buildRuntime, startRuntime, stepRuntime } from './engines/runtime.js'
+import { localizationReport, toCsv } from './engines/localization.js'
+import { analytics } from './engines/analytics.js'
+import { selectStorylets } from './engines/storylets.js'
+import { productionReport, generateTasks } from './engines/production.js'
 import { check as checkExpr, variablesOf, BUILTIN_FUNCTIONS } from './engines/expr.js'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -405,6 +410,47 @@ route('POST', /^\/api\/engine\/blueprint$/, async (req, res) => {
     return send(res, 200, blueprint.markdown, { 'Content-Type': 'text/markdown; charset=utf-8' })
   }
   send(res, 200, blueprint)
+})
+
+route('POST', /^\/api\/engine\/runtime$/, async (req, res) => {
+  const body = await readBody(req)
+  const project = projectOf(body, req).project
+  if (body.action === 'step') {
+    const out = stepRuntime(project, body.state || {}, body.edgeId)
+    return send(res, 200, out)
+  }
+  if (body.action === 'view') {
+    const runtime = buildRuntime(project)
+    return send(res, 200, runtime)
+  }
+  send(res, 200, startRuntime(project, { startId: body.startId || '', flags: body.flags || {} }))
+})
+
+route('POST', /^\/api\/engine\/localization$/, async (req, res) => {
+  const body = await readBody(req)
+  const project = projectOf(body, req).project
+  const report = localizationReport(project)
+  if (body.format === 'csv') return send(res, 200, toCsv(report), { 'Content-Type': 'text/csv; charset=utf-8' })
+  send(res, 200, report)
+})
+
+route('POST', /^\/api\/engine\/analytics$/, async (req, res) => {
+  const body = await readBody(req)
+  const project = projectOf(body, req).project
+  send(res, 200, analytics(project))
+})
+
+route('POST', /^\/api\/engine\/storylets$/, async (req, res) => {
+  const body = await readBody(req)
+  const project = projectOf(body, req).project
+  send(res, 200, selectStorylets(project, { flags: body.flags || {}, seen: body.seen || [] }))
+})
+
+route('POST', /^\/api\/engine\/production$/, async (req, res) => {
+  const body = await readBody(req)
+  const project = projectOf(body, req).project
+  if (body.action === 'generate') return send(res, 200, { tasks: generateTasks(project) })
+  send(res, 200, productionReport(project))
 })
 
 /* ---------------- 静态资源 ---------------- */
