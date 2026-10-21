@@ -3,7 +3,10 @@ import http from 'node:http'
 import path from 'node:path'
 import { readFile, stat } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
-import { init, list, create, get, save, remove, resetDemo, defaultProjectId } from './store.js'
+import { init, list, create, get, save, remove, resetDemo, defaultProjectId, normalizeProject, importProject, createCheckpoint, restoreVersion } from './store.js'
+import { listVersions, getVersion, historyInfo } from './versions.js'
+import { compareProjects } from './engines/version.js'
+import { buildGstory, parseGstory, planImport } from './engines/gstory.js'
 import { deriveAll, curve, validateAttribute, attrsOf } from './engines/stats.js'
 import { simulate, matrix, resolveBattle, levelSweep, DEFAULT_CONFIG } from './engines/combat.js'
 import { analyze, simulateRoute } from './engines/branch.js'
@@ -65,6 +68,18 @@ async function readBody(req, limit = 8 * 1024 * 1024) {
   } catch {
     throw Object.assign(new Error('请求体不是合法 JSON'), { status: 400 })
   }
+}
+
+async function readRawBody(req, limit = 32 * 1024 * 1024) {
+  const chunks = []
+  let size = 0
+  for await (const chunk of req) {
+    size += chunk.length
+    if (size > limit) throw Object.assign(new Error('请求体过大（上限 32MB）'), { status: 413 })
+    chunks.push(chunk)
+  }
+  if (!chunks.length) throw Object.assign(new Error('请求体为空'), { status: 400 })
+  return Buffer.concat(chunks)
 }
 
 function projectOf(body = {}, req) {
@@ -151,6 +166,121 @@ route('PUT', /^\/api\/projects\/([A-Za-z0-9_-]+)$/, async (req, res) => {
 route('DELETE', /^\/api\/projects\/([A-Za-z0-9_-]+)$/, async (req, res) => {
   const projects = await remove(req.params[0])
   send(res, 200, { ok: true, projects, defaultProjectId: defaultProjectId() })
+})
+
+/* ---- 版本历史 ---- */
+
+route('GET', /^\/api\/projects\/([A-Za-z0-9_-]+)\/versions$/, async (req, res) => {
+  const record = get(req.params[0])
+  const data = await listVersions(record.project.id, record.revision)
+  send(res, 200, data)
+})
+
+route('POST', /^\/api\/projects\/([A-Za-z0-9_-]+)\/versions$/, async (req, res) => {
+  const body = await readBody(req)
+  const label = String(body.label || '').trim()
+  if (!label) throw Object.assign(new Error('检查点名称不能为空'), { status: 400 })
+  const { record, entry } = await createCheckpoint(req.params[0], label)
+  const data = await listVersions(record.project.id, record.revision)
+  send(res, 201, { ok: true, entry, project: record.project, revision: record.revision, ...data })
+})
+
+route('GET', /^\/api\/projects\/([A-Za-z0-9_-]+)\/versions\/compare$/, async (req, res) => {
+  const record = get(req.params[0])
+  const qs = new URL(req.url, 'http://localhost').searchParams
+  const data = await listVersions(record.project.id, record.revision)
+  const versions = data.versions
+  if (!versions.length) throw Object.assign(new Error('还没有可比较的版本'), { status: 404 })
+  const fromId = qs.get('a') || versions[1]?.id || versions[0].id
+  const toId = qs.get('b') || versions[0].id
+  const fromEntry = versions.find((v) => v.id === fromId)
+  const toEntry = versions.find((v) => v.id === toId)
+  if (!fromEntry || !toEntry) throw Object.assign(new Error('版本不存在'), { status: 404 })
+  const [fromSnap, toSnap] = await Promise.all([getVersion(record.project.id, fromEntry.id), getVersion(record.project.id, toEntry.id)])
+  const diff = compareProjects(fromSnap.project, toSnap.project, {
+    from: { versionId: fromEntry.id, revision: fromEntry.revision, label: fromEntry.label, createdAt: fromEntry.createdAt, kind: fromEntry.kind },
+    to: { versionId: toEntry.id, revision: toEntry.revision, label: toEntry.label, createdAt: toEntry.createdAt, kind: toEntry.kind }
+  })
+  send(res, 200, { projectId: record.project.id, from: fromEntry, to: toEntry, diff })
+})
+
+route('GET', /^\/api\/projects\/([A-Za-z0-9_-]+)\/versions\/([A-Za-z0-9_-]+)$/, async (req, res) => {
+  const record = get(req.params[0])
+  const snapshot = await getVersion(record.project.id, req.params[1])
+  send(res, 200, { version: { versionId: snapshot.versionId, revision: snapshot.revision, createdAt: snapshot.createdAt, kind: snapshot.kind, label: snapshot.label, pinned: snapshot.pinned }, project: snapshot.project })
+})
+
+route('POST', /^\/api\/projects\/([A-Za-z0-9_-]+)\/versions\/([A-Za-z0-9_-]+)\/restore$/, async (req, res) => {
+  const body = await readBody(req)
+  const { record, snapshot } = await restoreVersion(req.params[0], req.params[1], body.baseRevision)
+  const data = await listVersions(record.project.id, record.revision)
+  send(res, 200, { ok: true, project: record.project, revision: record.revision, restored: { versionId: snapshot.versionId, label: snapshot.label }, ...data })
+})
+
+/* ---- .gstory 导入导出 ---- */
+
+route('GET', /^\/api\/projects\/([A-Za-z0-9_-]+)\/export$/, async (req, res) => {
+  const record = get(req.params[0])
+  const info = await historyInfo(record.project.id).catch(() => ({ count: 0 }))
+  const built = buildGstory(record.project, { revision: record.revision, versionCount: info.count })
+  send(res, 200, built.buffer, {
+    'Content-Type': 'application/zip',
+    'Content-Length': String(built.buffer.length),
+    'Content-Disposition': `attachment; filename="gstory-${record.project.id}.gstory"; filename*=UTF-8''${encodeURIComponent(built.filename)}`
+  })
+})
+
+route('POST', /^\/api\/projects\/import\/preview$/, async (req, res) => {
+  const buffer = await readRawBody(req)
+  const archive = parseGstory(buffer)
+  const projects = list()
+  const plan = planImport(archive, projects)
+  send(res, 200, {
+    ok: true,
+    size: buffer.length,
+    manifest: archive.manifest,
+    validation: archive.validation,
+    summary: plan.summary,
+    conflicts: plan.conflicts,
+    suggestedName: plan.suggestedName,
+    canOverwrite: plan.canOverwrite,
+    existing: plan.existing,
+    entries: archive.entries
+  })
+})
+
+route('POST', /^\/api\/projects\/import$/, async (req, res) => {
+  const buffer = await readRawBody(req)
+  const archive = parseGstory(buffer)
+  if (archive.validation.errors.length) throw Object.assign(new Error(`存档校验失败：${archive.validation.errors.join('；')}`), { status: 400 })
+  const qs = new URL(req.url, 'http://localhost').searchParams
+  const mode = qs.get('mode') === 'overwrite' ? 'overwrite' : 'copy'
+  const requestedName = String(qs.get('name') || '').trim()
+  const projects = list()
+  const plan = planImport(archive, projects, { name: requestedName || null })
+
+  if (mode === 'overwrite') {
+    const targetId = qs.get('targetId') || archive.project.id
+    const target = get(targetId)
+    const baseRevision = qs.get('baseRevision')
+    if (baseRevision == null) throw Object.assign(new Error('覆盖导入需要 baseRevision'), { status: 400 })
+    if (Number(baseRevision) !== Number(target.revision)) {
+      const err = new Error('版本冲突：目标企划已被修改，请重新预览后再导入')
+      err.status = 409
+      err.current = target.revision
+      throw err
+    }
+    const next = normalizeProject(archive.project)
+    next.id = targetId
+    if (requestedName) next.name = requestedName
+    const record = await save(targetId, next, baseRevision, { kind: 'import', label: '导入覆盖' })
+    return send(res, 200, { ok: true, mode, project: record.project, revision: record.revision, projects: list() })
+  }
+
+  const next = normalizeProject(archive.project)
+  const name = plan.suggestedName
+  const record = await importProject(next, { name })
+  send(res, 201, { ok: true, mode: 'copy', project: record.project, revision: record.revision, projects: list() })
 })
 
 /* ---- 元信息 ---- */

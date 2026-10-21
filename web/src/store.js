@@ -111,6 +111,14 @@ export async function switchProject(id) {
   }
 }
 
+/** 重新加载当前企划（回退、覆盖导入后使用）。 */
+export async function reloadProject() {
+  if (!store.activeId) return
+  clearTimeout(timer)
+  if (store.dirty) await flush()
+  await loadProject(store.activeId)
+}
+
 export async function createProject(payload) {
   clearTimeout(timer)
   if (store.dirty) await flush()

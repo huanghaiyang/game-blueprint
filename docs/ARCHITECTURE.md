@@ -8,12 +8,13 @@
   ▼
 Node HTTP 服务（server/index.js）
   ├─ 静态资源：dist/（生产）
-  ├─ 路由：多企划 CRUD + 7 类引擎
+  ├─ 路由：多企划 CRUD + 引擎 API + 版本历史 + .gstory 导入导出
   ├─ 持久化：data/projects/<id>.json（原子写 + 每企划 revision）
+  ├─ 版本快照：data/history/<id>/（index.json + v-xxxxxx.json）
   └─ 引擎层（纯函数，无 IO）
        expr → stats → combat
        branch → blueprint
-       infer / world
+       infer / world / version / gstory
 ```
 
 设计原则：
@@ -322,6 +323,44 @@ Node HTTP 服务（server/index.js）
 - 按钮：工具栏 `↶ / ↷`；快捷键：`Ctrl/⌘ + Z` 撤销，`Ctrl/⌘ + Shift + Z` 或 `Ctrl/⌘ + Y` 重做（输入框内保留浏览器原生撤销）。
 - 快照使用 JSON 深拷贝而不是 `structuredClone`，因为元素对象来自 Vue 响应式代理。
 
+### 2.7 历史版本与回退
+
+版本历史独立于企划 JSON，存放在 `data/history/<projectId>/`：
+
+```text
+data/history/proj-mist-harbor/
+├─ index.json          # { projectId, next, versions[] }
+└─ v-000001.json       # { versionId, revision, createdAt, kind, label, pinned, project }
+```
+
+- **自动记录**：每次 `save()` 后按 `JSON.stringify(project)` 的 SHA-256 去重追加；内容没变不产生新版本。
+- **类型**：`initial` 初始 / `auto` 自动 / `manual` 手动检查点 / `restore` 回退 / `import` 导入 / `reset` 恢复演示。
+- **保留策略**：自动版本最多 60 个，手动检查点 `pinned` 固定保留；最新版本永不删除。
+- **回退**：`POST /projects/:id/versions/:versionId/restore` 带 `baseRevision`；先校验冲突，再整体替换企划并追加一条 `restore` 版本（不删除历史）。
+- **差异**：`compareProjects(from, to)` 按 10 个模块比较：
+  - 企划信息与模块、叙事图谱、角色设计、技能、数值属性、数值对抗、分支演算（派生）、走向蓝图、开放世界、推理案件。
+  - 实体数组按 `id` 计算 added / removed / updated，并记录顶层变更字段；开放世界额外统计 13 类元素、聚落状态、对话/任务数。
+  - 影响范围根据引用关系推导：叙事节点删除会影响分支/蓝图/地图引用；角色删除会影响地图 NPC 与案件嫌疑；传送门目标删除、技能引用、模块开关都会生成提示。
+- **原子写**：`server/atomic.js` 对 Windows 下偶发 `EPERM/EBUSY` 做重试，避免版本索引因文件锁丢失。
+
+### 2.8 .gstory 专有存档
+
+`.gstory` 是 ZIP 压缩包（deflate），固定包含：
+
+```text
+manifest.json   # format/version/revision/modules/summary/projectHash/files[]
+project.json    # 完整企划快照
+README.txt      # 人类可读说明
+```
+
+- `manifest.projectHash` 是 `project.json` 字节的 SHA-256；解析时逐项校验大小与哈希。
+- ZIP 解析支持 store/deflate，拒绝加密、data descriptor、ZIP64、非法路径和超过 32MB 的包；解压有输出上限。
+- 导入前 `planImport()` 返回冲突：企划 ID 已存在、同名企划、revision 较旧、结构/引用告警、建议的新名称。
+- 导入模式：
+  - `copy`：生成新 ID，名称冲突自动追加「（导入）」；
+  - `overwrite`：必须提供目标 `targetId` 与当前 `baseRevision`，覆盖后保留版本历史并追加 `import` 版本。
+- 导入写库仍走 `store.save/importProject`，因此会触发正常的 revision 与历史记录。
+
 ## 3. 引擎接口
 
 ### `expr.js`
@@ -380,6 +419,23 @@ analyzeWorld(project) // { summary, warnings, settlements, quests, dialogues, po
 
 `summary` 含元素分类计数、聚落（安全/敌对/中立）、对话数（含特定对象）、任务数、传送门可用数、地图范围与错误/警告计数；蓝图会引用该结果生成「开放世界摘要」章节。
 
+### `version.js`
+
+```js
+compareProjects(fromProject, toProject, { from, to })
+// { summary, modules, impact, from, to, generatedAt }
+```
+
+`modules` 覆盖 meta / narrative / characters / skills / stats / combat / branches / blueprint / world / cases；每一项含 counts、added/removed/updated 明细、字段变更和模块特有聚合（节点/连线、属性/公式、13 类地图元素、聚落状态等）。
+
+### `gstory.js`
+
+```js
+buildGstory(project, { revision, versionCount }) // { buffer, manifest, filename }
+parseGstory(buffer)                              // { manifest, project, validation, entries }
+planImport(archive, existingProjects, { name })  // { conflicts, suggestedName, canOverwrite, existing }
+```
+
 ## 4. MCP 层
 
 `mcp/` 是一个零第三方依赖的 MCP stdio 服务，协议层与业务层分离：
@@ -405,7 +461,10 @@ mcp/api.mjs      本地 REST 客户端，读-改-写、409 重试、项目解析
 
 - 页面每次编辑触发深度 watch → 650ms 防抖 → `PUT /api/projects/:id`。
 - 请求带 `baseRevision`；该企划的 revision 不匹配返回 `409` 与当前 revision，前端提示并重新加载，避免覆盖。
-- 服务端写入流程：写 `<id>.json.tmp` → `rename` 原子替换，保证崩溃时不产生半截文件。
+- 服务端写入流程：`atomicWrite()` 写临时文件 → `rename` 原子替换；Windows 文件锁会重试并最终回退直接写，避免索引丢失。
+- 每次成功保存后按内容哈希追加历史版本；`create/import/reset` 也各自生成初始/导入/重置版本。
+- 回退使用 `baseRevision` 校验，成功后追加 `restore` 版本，历史不会被删改。
+- `.gstory` 导入预览只解析不写库；确认导入才走 `importProject` / `save`，覆盖模式额外校验 `baseRevision`。
 - 切换企划前会先 flush 当前企划的未保存修改，再加载目标企划。
 - 引擎调用前调用 `ensureSaved()`，保证「刚改完就演算」不会读到旧快照。
 - 新建企划：`blankProject()` 带通用属性/技能/战斗预设、一个初始角色、一个开场节点与空世界；也可用 `template:"clone"` 复制现有企划。
@@ -422,6 +481,8 @@ mcp/api.mjs      本地 REST 客户端，读-改-写、409 重试、项目解析
 | 试玩模式 | 前端新增 `PlayView`，复用 `branchRoute` 按玩家选择推进 |
 | 状态效果 | 扩展 `combat.js` 的 combatant 状态机（护盾/持续伤害/控制），技能加 `effects` |
 | 案件编辑器 | 推理页增加规则表单，复用 `validateAttribute` 类似的语法校验 |
+| 版本分支 | 在历史版本上创建「分支企划」而不是覆盖回退；复用 `importProject()` 生成副本 |
+| 增量存档 | `.gstory` 增加 history 快照/资源文件；manifest 的 files 已支持多文件校验 |
 | 大地图运行时 | 用 `portals`/`road` 建图做寻路与旅行时间；元素坐标可导出到 Unity/Godot 场景 |
 | 对话运行时 | 将 `dialogues` 导出为对话树（Yarn/Ink），`audienceIds` 映射为条件函数 |
 | 导出 PDF/PPT | 基于 `blueprint.markdown` 接 Markdown→PDF，或直接生成结构化 JSON 给设计工具 |

@@ -1,8 +1,10 @@
 /** 多企划工作区：data/projects/<id>.json，原子写入、revision、旧单企划数据自动迁移。 */
-import { mkdir, readdir, readFile, writeFile, rename, access, unlink } from 'node:fs/promises'
+import { mkdir, readdir, readFile, access, unlink } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { seedProject, blankProject, DEFAULT_MODULES } from './seed.js'
+import { ensureHistory, recordVersion, checkpoint, resetHistory, deleteHistory, getVersion } from './versions.js'
+import { atomicWrite } from './atomic.js'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const DATA_DIR = path.join(ROOT, 'data')
@@ -71,10 +73,8 @@ async function writeRecord(record) {
   if (!safeId(id)) throw Object.assign(new Error('企划 ID 非法'), { status: 400 })
   await mkdir(PROJECT_DIR, { recursive: true })
   const file = path.join(PROJECT_DIR, `${id}.json`)
-  const tmp = `${file}.tmp`
   const payload = JSON.stringify({ project: record.project, revision: record.revision, updatedAt: record.updatedAt }, null, 2)
-  await writeFile(tmp, payload, 'utf8')
-  await rename(tmp, file)
+  await atomicWrite(file, payload)
   cache.set(id, record)
   await sortDefault()
 }
@@ -125,6 +125,13 @@ export async function init() {
     }
   }
   await loadAll()
+  for (const record of cache.values()) {
+    try {
+      await ensureHistory(record.project, record.revision)
+    } catch (e) {
+      console.error(`初始化版本历史失败（${record.project.id}）：${e.message}`)
+    }
+  }
   return list()
 }
 
@@ -177,10 +184,11 @@ export async function create({ name, meta = {}, modules = {}, template = 'blank'
   project = normalizeProject(project)
   const record = { project, revision: 1, updatedAt: now() }
   await writeRecord(record)
+  await ensureHistory(record.project, record.revision).catch((e) => console.error(`初始化版本历史失败：${e.message}`))
   return record
 }
 
-export async function save(id, project, baseRevision) {
+export async function save(id, project, baseRevision, historyOptions = {}) {
   const record = get(id)
   if (baseRevision != null && Number(baseRevision) !== record.revision) {
     const err = new Error('版本冲突：数据已被其他窗口修改，请刷新后重试')
@@ -194,7 +202,53 @@ export async function save(id, project, baseRevision) {
   record.revision += 1
   record.updatedAt = now()
   await writeRecord(record)
+  await recordVersion(next, record.revision, {
+    kind: historyOptions.kind || 'auto',
+    label: historyOptions.label || '',
+    pinned: !!historyOptions.pinned
+  }).catch((e) => console.error(`记录版本历史失败（${id}）：${e.message}`))
   return record
+}
+
+export async function importProject(project, { name = null } = {}) {
+  const next = normalizeProject(project)
+  next.id = `proj-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+  if (name) next.name = name
+  const record = { project: next, revision: 1, updatedAt: now() }
+  await writeRecord(record)
+  await ensureHistory(next, 1)
+  await recordVersion(next, 1, { kind: 'import', label: '导入存档', pinned: true })
+  return record
+}
+
+export async function createCheckpoint(id, label) {
+  const record = get(id)
+  const entry = await checkpoint(record.project, record.revision, label)
+  return { record, entry }
+}
+
+export async function restoreVersion(id, versionId, baseRevision) {
+  const record = get(id)
+  if (baseRevision == null) throw Object.assign(new Error('回退需要 baseRevision，避免覆盖他人修改'), { status: 400 })
+  if (Number(baseRevision) !== record.revision) {
+    const err = new Error('版本冲突：当前企划已被修改，请刷新后重试')
+    err.status = 409
+    err.current = record.revision
+    throw err
+  }
+  const snapshot = await getVersion(id, versionId)
+  const next = normalizeProject(snapshot.project)
+  next.id = id
+  record.project = next
+  record.revision += 1
+  record.updatedAt = now()
+  await writeRecord(record)
+  await recordVersion(next, record.revision, {
+    kind: 'restore',
+    label: `回退到 ${snapshot.label || versionId}`,
+    pinned: true
+  }).catch((e) => console.error(`记录回退版本失败（${id}）：${e.message}`))
+  return { record, snapshot }
 }
 
 export async function remove(id) {
@@ -204,6 +258,7 @@ export async function remove(id) {
   get(id)
   await unlink(path.join(PROJECT_DIR, `${id}.json`)).catch(() => {})
   cache.delete(id)
+  await deleteHistory(id).catch((e) => console.error(`删除版本历史失败（${id}）：${e.message}`))
   if (defaultId === id) await sortDefault()
   return list()
 }
@@ -217,6 +272,7 @@ export async function resetDemo() {
     updatedAt: now()
   }
   await writeRecord(record)
+  await resetHistory(project, record.revision, { kind: 'reset', label: '恢复演示企划' })
   return record
 }
 

@@ -8,6 +8,8 @@ import { analyze, simulateRoute } from '../engines/branch.js'
 import { runInference } from '../engines/infer.js'
 import { buildBlueprint } from '../engines/blueprint.js'
 import { analyzeWorld } from '../engines/world.js'
+import { compareProjects } from '../engines/version.js'
+import { buildGstory, parseGstory, planImport } from '../engines/gstory.js'
 
 let pass = 0
 const failures = []
@@ -244,6 +246,50 @@ test('可选模块列表完整', () => {
   assert.deepEqual(Object.keys(DEFAULT_MODULES).sort(), ['blueprint', 'branches', 'characters', 'combat', 'dashboard', 'inference', 'narrative', 'stats', 'world'])
   const blank = blankProject({ name: '无推理', modules: { inference: true } })
   assert.equal(blank.meta.modules.inference, true)
+})
+
+console.log('\n[9] 版本历史与 .gstory')
+test('版本对比定位模块、实体与影响范围', () => {
+  const from = seedProject()
+  const to = structuredClone(from)
+  to.meta.modules.inference = false
+  to.narrative.nodes[0].title = '修改后的开场'
+  to.narrative.nodes.splice(1, 1)
+  to.characters[0].base.atk += 5
+  const clock = to.world.elements.find((e) => e.id === 'w-set-clock')
+  clock.data.hostile = true
+  clock.data.safeZone = false
+  const d = compareProjects(from, to, { from: { versionId: 'v1' }, to: { versionId: 'v2' } })
+  const changed = d.summary.changedModules.map((m) => m.key)
+  for (const key of ['meta', 'narrative', 'characters', 'branches', 'world']) assert.ok(changed.includes(key), `缺少变化模块 ${key}`)
+  assert.equal(d.modules.narrative.nodes.removed.length, 1)
+  assert.equal(d.modules.narrative.nodes.updated.length, 1)
+  assert.equal(d.modules.characters.details.updated.items[0].fields[0], 'base')
+  assert.ok(d.modules.world.settlementChanges.some((s) => s.name === '钟楼集'))
+  assert.ok(d.impact.affectedModules.some((m) => m.key === 'blueprint'))
+  assert.ok(d.impact.notes.some((n) => n.text.includes('钟楼集')))
+})
+test('.gstory 导出、校验与冲突预检', () => {
+  const built = buildGstory(project, { revision: 3 })
+  assert.ok(Buffer.isBuffer(built.buffer))
+  assert.ok(built.buffer.length > 1000)
+  assert.ok(built.filename.endsWith('.gstory'))
+  const parsed = parseGstory(built.buffer)
+  assert.equal(parsed.project.id, project.id)
+  assert.equal(parsed.manifest.format, 'gstory')
+  assert.equal(parsed.manifest.revision, 3)
+  assert.deepEqual(parsed.entries.sort(), ['README.txt', 'manifest.json', 'project.json'])
+  assert.equal(parsed.validation.errors.length, 0)
+  const plan = planImport(parsed, [{ id: project.id, name: project.name, revision: 5 }])
+  assert.ok(plan.conflicts.some((c) => c.code === 'PROJECT_ID_EXISTS'))
+  assert.ok(plan.suggestedName.includes('导入'))
+  assert.equal(plan.canOverwrite, true)
+})
+test('损坏的 .gstory 会被拒绝', () => {
+  assert.throws(() => parseGstory(Buffer.from('not a zip')))
+  const built = buildGstory(project, { revision: 1 })
+  const corrupted = built.buffer.subarray(0, built.buffer.length - 10)
+  assert.throws(() => parseGstory(corrupted))
 })
 
 console.log(`\n结果：${pass} 通过，${failures.length} 失败\n`)

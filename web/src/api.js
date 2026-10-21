@@ -35,7 +35,64 @@ export const api = {
   branch: (projectId, options = {}) => req('/engine/branch', { method: 'POST', body: { projectId, options } }),
   branchRoute: (projectId, edgeIds) => req('/engine/branch/route', { method: 'POST', body: { projectId, edgeIds } }),
   world: (projectId) => req('/engine/world', { method: 'POST', body: { projectId } }),
+  versions: (projectId) => req(`/projects/${encodeURIComponent(projectId)}/versions`),
+  version: (projectId, versionId) => req(`/projects/${encodeURIComponent(projectId)}/versions/${encodeURIComponent(versionId)}`),
+  createVersion: (projectId, label) => req(`/projects/${encodeURIComponent(projectId)}/versions`, { method: 'POST', body: { label } }),
+  compareVersions: (projectId, a, b) =>
+    req(`/projects/${encodeURIComponent(projectId)}/versions/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`),
+  restoreVersion: (projectId, versionId, baseRevision) =>
+    req(`/projects/${encodeURIComponent(projectId)}/versions/${encodeURIComponent(versionId)}/restore`, { method: 'POST', body: { baseRevision } }),
+  exportGstory: async (projectId) => {
+    const res = await fetch(`${BASE}/projects/${encodeURIComponent(projectId)}/export`)
+    if (!res.ok) {
+      const type = res.headers.get('content-type') || ''
+      const payload = type.includes('application/json') ? await res.json() : await res.text()
+      throw new Error(payload?.error || `导出失败（HTTP ${res.status}）`)
+    }
+    return { blob: await res.blob(), filename: filenameFromDisposition(res.headers.get('content-disposition')) }
+  },
+  previewImport: async (buffer) => {
+    const res = await fetch(`${BASE}/projects/import/preview`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: buffer
+    })
+    return parseRaw(res)
+  },
+  importGstory: async (buffer, { mode = 'copy', name = '', targetId = '', baseRevision = '' } = {}) => {
+    const qs = new URLSearchParams({ mode, name, targetId, baseRevision })
+    const res = await fetch(`${BASE}/projects/import?${qs}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: buffer
+    })
+    return parseRaw(res)
+  },
   infer: (projectId, caseId, clueOverrides = null) =>
     req('/engine/infer', { method: 'POST', body: { projectId, caseId, clueOverrides } }),
   blueprint: (projectId) => req('/engine/blueprint', { method: 'POST', body: { projectId } })
+}
+
+async function parseRaw(res) {
+  const type = res.headers.get('content-type') || ''
+  const payload = type.includes('application/json') ? await res.json() : await res.text()
+  if (!res.ok) {
+    const err = new Error(payload?.error || `请求失败（HTTP ${res.status}）`)
+    err.status = res.status
+    err.data = payload
+    throw err
+  }
+  return payload
+}
+
+function filenameFromDisposition(value) {
+  if (!value) return ''
+  const utf = /filename\*=UTF-8''([^;]+)/i.exec(value)
+  if (utf) {
+    try {
+      return decodeURIComponent(utf[1])
+    } catch {}
+  }
+  const plain = /filename="?([^";]+)"?/i.exec(value)
+  return plain ? plain[1] : ''
 }

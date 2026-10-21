@@ -1,6 +1,6 @@
 # Game Story Studio · 游戏叙事设计工作台
 
-面向叙事策划、系统策划与独立开发者的本地一体化工作台：**剧情叙事 · 角色设计 · 数值管理 · 数值对抗 · 分支演算 · 开放世界 · 推理 · 走向蓝图**。
+面向叙事策划、系统策划与独立开发者的本地一体化工作台：**剧情叙事 · 角色设计 · 数值管理 · 数值对抗 · 分支演算 · 开放世界 · 推理 · 走向蓝图 · 历史版本 · 导入导出**。
 
 支持 **多企划工作区**（新建 / 切换 / 删除 / 复制）、**按企划启用模块**（推理等模块默认关闭，不强迫每个企划都使用）。
 
@@ -21,6 +21,8 @@
 | **开放世界 World** | **无限画布大地图**：聚落（敌对 / 安全区 / 增益）、NPC 角色、建筑、树木、河流、山川、重要据点、收集物、特殊区域、公告栏、路引、传送门；NPC 通用 / 特定对象对话、分支选项、任务派发；**撤销 / 重做**、世界体检 |
 | **推理 Inference** | **可选模块**：可信度（CF）前向链、线索开关假设、嫌疑排序、矛盾检测、待补线索提示、规则覆盖率、推理链时间线 |
 | **走向蓝图 Blueprint** | 分幕结构编辑、节奏曲线、关键节拍、结局覆盖、风险清单、角色弧光、Lv1/5/10 数值锚点，一键导出 Markdown |
+| **历史版本 History** | 自动保存快照 + 手动检查点、版本时间线、跨版本模块对比、实体增删改明细、影响范围与风险提示、一键回退 |
+| **导入导出 Transfer** | 专有 `.gstory` ZIP 存档（manifest + project + 校验哈希）、导出/导入、冲突预检、引用校验、复制或覆盖导入 |
 
 演示企划《雾港回声》包含 18 个剧情节点、24 条连线、31 条可行路径、3 个结局、5 个角色、14 条属性、4 个指标公式、14 条推理规则，以及一张 **57 个元素的开放世界地图**（4 个聚落、8 个 NPC、5 个任务、2 个传送门），打开即可体验全部模块。新建空白企划会自动带一套通用属性/技能模板，并默认关闭推理模块；之后可在总览的「模块启用」里随时打开。
 
@@ -50,8 +52,9 @@ npm start                 # http://127.0.0.1:3087
 ```
 
 - 端口可用环境变量覆盖：`PORT=4000 npm start`（Windows：`$env:PORT=4000; npm start`）。
-- 数据目录：`data/projects/<企划ID>.json`；首次运行会把旧的 `data/project.json` 自动迁移为演示企划，没有旧数据则自动播种《雾港回声》。
+- 数据目录：`data/projects/<企划ID>.json`，版本快照在 `data/history/<企划ID>/`；首次运行会把旧的 `data/project.json` 自动迁移为演示企划，没有旧数据则自动播种《雾港回声》。
 - 所有编辑 **自动保存**（650ms 防抖），`Ctrl / ⌘ + S` 立即保存；多窗口同时编辑同一企划会通过 revision 冲突检测避免静默覆盖。
+- 每次自动保存会生成历史版本（自动保留最近 60 个）；手动检查点固定保留。
 - 顶栏「企划名 ▾」可切换 / 删除企划，右侧「＋ 新建企划」打开创建向导；恢复演示只在演示企划下出现。
 
 ### 新建企划与可选模块
@@ -75,6 +78,8 @@ npm start                 # http://127.0.0.1:3087
 7. 打开 **数值对抗**，点「开始演算」看胜率/回合分布，再「计算矩阵」找强弱关系。
 8. 打开 **推理**，取消勾选「缺页账本」，观察结论如何退回「推理未闭合」，并读取「待补线索」。
 9. 打开 **走向蓝图**，展开 Markdown 预览并下载交付文档（含开放世界摘要）。
+10. 打开 **历史版本**：版本时间线选择 A/B，查看变化模块、实体明细与影响范围；创建检查点或回退到旧版本。
+11. 打开 **导入导出**：导出 `.gstory`，再把文件拖回导入区，查看冲突预检（ID/名称/引用）后复制为新企划或覆盖。
 
 ## 工程结构
 
@@ -91,8 +96,12 @@ game-story/
 │  │  ├─ branch.js          # 路径枚举、概率质量、旗标/环/死路/中心度
 │  │  ├─ infer.js           # CF 前向链、待补线索、矛盾检测
 │  │  ├─ world.js           # 开放世界体检：元素/聚落/NPC 对话/任务/传送门引用
+│  │  ├─ version.js         # 版本差异：模块、实体、影响范围
+│  │  ├─ gstory.js          # .gstory ZIP 打包/解析、哈希与导入冲突预检
 │  │  └─ blueprint.js       # 结构评分、张力曲线、Markdown 生成
-│  └─ tests/run.js          # 引擎与模块自测（30 项）
+│  ├─ versions.js           # data/history/<id>/ 版本索引与快照
+│  ├─ atomic.js             # Windows 文件锁重试的安全写入
+│  └─ tests/run.js          # 引擎与模块自测（33 项）
 ├─ web/
 │  ├─ index.html
 │  ├─ vite.config.js
@@ -102,10 +111,11 @@ game-story/
 │     ├─ styles.css         # 设计系统（深色雾港主题）
 │     ├─ worldTypes.js       # 13 类地图元素默认值与分类
 │     ├─ components/        # Graph3D · LineChart · Avatar · WorldCanvas · WorldInspector
-│     └─ views/             # 9 个业务视图（含开放世界）
+│     └─ views/             # 11 个业务视图（含历史版本与导入导出）
 ├─ scripts/                 # dev 启动、CDP 验收截图、多企划/开放世界 UI 验收、沙箱修复
 ├─ mcp/                     # 零依赖 MCP stdio 服务 + 配置说明 + 工具定义
 ├─ data/projects/           # 运行时企划数据（自动创建，按企划分文件）
+├─ data/history/            # 版本索引与快照（自动保留最近 60 个自动版本）
 └─ dist/                    # 构建产物
 ```
 
@@ -131,6 +141,13 @@ game-story/
 | `POST /engine/infer` | `{projectId, caseId, clueOverrides?}` → 推理结果（推理未启用时前端不调用） |
 | `POST /engine/world` | `{projectId}` → 世界统计、聚落状态、任务/对话覆盖、传送门与引用告警 |
 | `POST /engine/blueprint` | `{projectId, format?: "md"}` → 蓝图对象或 Markdown |
+| `GET /projects/:id/versions` | 版本索引（自动/手动/导入/回退、revision、大小、摘要） |
+| `GET /projects/:id/versions/compare?a=&b=` | 两个版本的模块差异、实体明细与影响范围 |
+| `POST /projects/:id/versions` | 创建手动检查点 `{label}` |
+| `POST /projects/:id/versions/:versionId/restore` | 回退到指定版本 `{baseRevision}`；冲突返回 409 |
+| `GET /projects/:id/export` | 下载 `.gstory` 压缩包 |
+| `POST /projects/import/preview` | 原始 `.gstory` 请求体 → 校验、冲突、建议名称 |
+| `POST /projects/import?mode=copy\|overwrite` | 导入为新企划或覆盖现有企划 |
 
 所有引擎接口都要求 `projectId`；前端在每次调用前会先 flush 未保存的修改，避免「刚改完就演算」读到旧快照。
 
@@ -169,22 +186,25 @@ npm run mcp      # 手动验证 stdio 服务
 - **分支演算**：以「不重复节点的简单路径」枚举到结局/死路，边权重归一化为概率；同时做可达性 BFS、Tarjan 回路、旗标读写闭合、Brandes 介数中心度、Shannon 分支熵与张力剖面。条件表达式按当前路径旗标求值，因此隐藏分支不会被误判为不可达。
 - **推理机**：事实/线索/人物特质 → 规则，结论 CF 取 `规则CF × 前提最小CF`，同类结论用 `a+b-ab` 合成；支持排除、矛盾检测、只差一个前提的「待补线索」提示。
 - **开放世界**：地图元素统一为 `{type, x, y, radius|points, data}`；聚落独立维护 `hostile / safeZone / buffs` 三个正交状态；NPC 对话按 `audienceIds` 过滤（空 = 所有人），选项作为分支回应，任务挂在对话上；体检引擎检查角色/剧情节点/传送门引用、空对话、敌对与安全区冲突等。
+- **历史版本**：每次保存按内容哈希去重写入 `data/history/<id>/`，自动版本保留最近 60 个、手动检查点固定保留；差异引擎按模块比较实体与字段，并基于叙事/角色/数值/世界引用关系推导影响范围。
+- **.gstory**：ZIP（deflate）内含 `manifest.json`、`project.json`、`README.txt`；manifest 记录格式版本、revision、模块与 SHA-256 校验；导入前做 ZIP 完整性、哈希、ID/名称冲突与引用检查，支持复制为新企划或显式覆盖。
 - **蓝图**：幕目标 vs 实际张力偏差、幕间骤降/突跳、空幕、死路、结局覆盖、分支熵、路径规模等规则合成为风险清单；关键节拍按 `扇出 × 张力 × 中心度` 排序。
 
 ## 测试与验收
 
 ```bash
-npm test                  # 30 项自测：表达式 / 数值 / 战斗 / 分支 / 推理 / 蓝图 / 开放世界 / 多企划模块
+npm test                  # 33 项自测：表达式 / 数值 / 战斗 / 分支 / 推理 / 蓝图 / 开放世界 / 版本差异 / .gstory / 多企划
 npm run check:sensitive   # 扫描密钥、令牌、邮箱、个人绝对路径
 node scripts/audit.mjs    # 需本机 Chrome 开启 CDP 9333；逐路由截图 + 控制台错误
 node scripts/qa-projects.mjs  # 多企划 UI 验收：新建、模块开关、推理空态、清理
 node scripts/qa-world.mjs     # 开放世界 UI 验收：地图、NPC 对话、聚落状态、全览
 node scripts/qa-world-edit.mjs # 编辑验收：空世界、添加元素、绘制河流、敌对联动（临时企划，自动清理）
 node scripts/qa-world-undo.mjs # 撤销/重做验收：添加、重命名、删除与键盘快捷键
+node scripts/qa-history-transfer.mjs # 历史版本对比/回退与 .gstory 导出 UI 验收
 npm run mcp                   # 启动 MCP stdio 服务（另开一个终端）
 ```
 
-`scripts/audit.mjs` 会把 9 个路由的截图写入 `artifacts/`（该目录已被 Git 忽略），并输出运行时报错列表（当前为 0）。
+`scripts/audit.mjs` 会把 13 项路由/交互检查的截图写入 `artifacts/`（该目录已被 Git 忽略），并输出运行时报错列表（当前为 0）。
 
 ## 隐私与数据
 
@@ -217,7 +237,7 @@ npm run fix:sandbox
 
 ## 后续可扩展
 
-- 多项目分组 / 归档与版本快照对比；
+- 多项目分组 / 归档与版本分支/合并；
 - 节点拖拽手动布局与自动布局切换；
 - 角色立绘生成与关系图 3D 化；
 - 战斗技能编辑器与状态效果（DoT / 护盾 / 控制）；

@@ -10,8 +10,10 @@ import Branches from './views/Branches.vue'
 import Inference from './views/Inference.vue'
 import Blueprint from './views/Blueprint.vue'
 import World from './views/World.vue'
+import History from './views/History.vue'
+import Transfer from './views/Transfer.vue'
 
-const views = { dashboard: Dashboard, narrative: Narrative, characters: Characters, stats: Stats, combat: Combat, branches: Branches, inference: Inference, blueprint: Blueprint, world: World }
+const views = { dashboard: Dashboard, narrative: Narrative, characters: Characters, stats: Stats, combat: Combat, branches: Branches, inference: Inference, blueprint: Blueprint, world: World, history: History, transfer: Transfer }
 const routes = Object.keys(views)
 
 const nav = [
@@ -23,7 +25,9 @@ const nav = [
   { id: 'branches', label: '分支演算', icon: '⑂', hint: '路径、旗标与结局' },
   { id: 'world', label: '开放世界', icon: '◍', hint: '无限画布大地图、聚落与 NPC 任务' },
   { id: 'inference', label: '推理', icon: '⌕', hint: '线索与可信度推理（可选）' },
-  { id: 'blueprint', label: '走向蓝图', icon: '▦', hint: '结构总览与导出' }
+  { id: 'blueprint', label: '走向蓝图', icon: '▦', hint: '结构总览与导出' },
+  { id: 'history', label: '历史版本', icon: '↺', hint: '版本对比、影响范围与回退' },
+  { id: 'transfer', label: '导入导出', icon: '⇅', hint: '.gstory 存档与冲突预检' }
 ]
 
 const titles = {
@@ -35,7 +39,9 @@ const titles = {
   branches: ['分支演算', '路径枚举、旗标依赖与结局覆盖'],
   world: ['开放世界', '无限画布大地图、聚落状态、NPC 对话与任务派发'],
   inference: ['推理', '线索前向链、可信度与嫌疑排序'],
-  blueprint: ['走向蓝图', '分幕结构、节奏曲线与可交付文档']
+  blueprint: ['走向蓝图', '分幕结构、节奏曲线与可交付文档'],
+  history: ['历史版本', '自动保存、手动检查点、跨版本模块对比与回退'],
+  transfer: ['导入 / 导出', '专有 .gstory 压缩包、冲突预检与迁移']
 }
 
 const current = computed(() => views[store.route] || Dashboard)
@@ -43,8 +49,9 @@ const meta = computed(() => titles[store.route] || titles.dashboard)
 const statusText = computed(() => (store.saving ? '保存中…' : store.dirty ? '有未保存修改' : store.savedAt ? '已自动保存' : '已同步'))
 const statusClass = computed(() => (store.saving ? 'saving' : store.dirty ? 'dirty' : ''))
 const modules = computed(() => store.project?.meta?.modules || {})
-const visibleNav = computed(() => nav.filter((n) => n.id === 'dashboard' || modules.value[n.id] !== false))
-const moduleOptions = computed(() => nav.filter((n) => n.id !== 'dashboard'))
+const ALWAYS_VISIBLE = new Set(['dashboard', 'history', 'transfer'])
+const visibleNav = computed(() => nav.filter((n) => ALWAYS_VISIBLE.has(n.id) || modules.value[n.id] !== false))
+const moduleOptions = computed(() => nav.filter((n) => !ALWAYS_VISIBLE.has(n.id)))
 
 const showProjectMenu = ref(false)
 const projectSwitchRef = ref(null)
