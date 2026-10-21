@@ -6,6 +6,7 @@ const props = defineProps({
   elements: { type: Array, default: () => [] },
   selectedId: { type: String, default: '' },
   visibleTypes: { type: Array, default: () => Object.keys(WORLD_TYPES) },
+  visibleElementIds: { type: Array, default: null },
   snap: { type: Boolean, default: true },
   drawMode: { type: String, default: '' },
   viewerName: { type: String, default: '' }
@@ -21,7 +22,7 @@ const hover = ref(null)
 const GRID = 20
 const MIN_ZOOM = 0.12
 const MAX_ZOOM = 3
-const DRAW_ORDER = ['region', 'river', 'road', 'mountain', 'tree', 'building', 'settlement', 'stronghold', 'bulletin', 'sign', 'portal', 'collectible', 'character']
+const DRAW_ORDER = ['region', 'river', 'road', 'mountain', 'tree', 'building', 'settlement', 'stronghold', 'bulletin', 'sign', 'portal', 'collectible', 'custom', 'character']
 
 let ctx = null
 let dpr = 1
@@ -38,6 +39,12 @@ let resizeObserver = null
 let lastElementsKey = ''
 
 const visibleSet = computed(() => new Set(props.visibleTypes))
+const visibleIdSet = computed(() => (props.visibleElementIds ? new Set(props.visibleElementIds) : null))
+
+function isVisible(el) {
+  if (visibleIdSet.value) return visibleIdSet.value.has(el.id)
+  return visibleSet.value.has(el.type)
+}
 const drawModeLabel = computed(() => (props.drawMode ? WORLD_TYPES[props.drawMode]?.label : ''))
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
@@ -338,8 +345,7 @@ function statusOf(el) {
 }
 
 function drawElement(el) {
-  const visible = visibleSet.value.has(el.type)
-  if (!visible) return
+  if (!isVisible(el)) return
   const pos = elementPos(el)
   const x = sx(pos.x)
   const y = sy(pos.y)
@@ -348,7 +354,7 @@ function drawElement(el) {
   const size = clamp(19 * cam.zoom, 11, 42)
   const status = statusOf(el)
 
-  if (el.type === 'region' || el.type === 'settlement' || el.type === 'mountain') drawArea(el, x, y, size, status)
+  if (el.type === 'region' || el.type === 'settlement' || el.type === 'mountain' || (el.type === 'custom' && Number(el.radius) > 0)) drawArea(el, x, y, size, status)
   if (el.type === 'river' || el.type === 'road') { drawPathElement(el, pos, selected); return }
 
   if (x < -120 || x > W + 120 || y < -120 || y > H + 120) return
@@ -609,13 +615,27 @@ function drawElement(el) {
     ctx.arc(0, 0, size * 0.14, 0, Math.PI * 2)
     ctx.fillStyle = color
     ctx.fill()
+  } else if (el.type === 'custom') {
+    const r = size * 0.66
+    ctx.beginPath()
+    ctx.arc(0, 0, r, 0, Math.PI * 2)
+    ctx.fillStyle = hexToRgba(color, 0.2)
+    ctx.fill()
+    ctx.strokeStyle = stroke
+    ctx.lineWidth = selected ? 2.4 : 1.7
+    ctx.stroke()
+    ctx.fillStyle = '#e6fbff'
+    ctx.font = `${Math.max(12, r * 1.1)}px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(el.icon || '✨', 0, 1)
   }
 
   ctx.restore()
 
   const labelY = y + size + 6
-  const big = el.type === 'settlement' || el.type === 'stronghold' || el.type === 'region'
-  const labelThreshold = big ? 0.3 : el.type === 'character' ? 0.42 : 0.55
+  const big = el.type === 'settlement' || el.type === 'stronghold' || el.type === 'region' || (el.type === 'custom' && Number(el.radius) > 0)
+  const labelThreshold = big ? 0.3 : el.type === 'character' || el.type === 'custom' ? 0.42 : 0.55
   if (selected || cam.zoom >= labelThreshold) drawLabel(el.name, x, labelY, color, selected, big)
   if (el.type === 'settlement') {
     const buffs = el.data?.buffs?.length || 0
@@ -664,11 +684,11 @@ function drawMinimap() {
   ctx.stroke()
 
   for (const el of props.elements) {
-    if (!visibleSet.value.has(el.type)) continue
+    if (!isVisible(el)) continue
     const color = el.type === 'settlement' ? statusOf(el).color : el.color || '#94a3b8'
     const px = mapX(Number(el.x) || 0)
     const py = mapY(Number(el.y) || 0)
-    if (el.type === 'settlement' || el.type === 'region') {
+    if (el.type === 'settlement' || el.type === 'region' || (el.type === 'custom' && Number(el.radius) > 0)) {
       ctx.beginPath()
       ctx.arc(px, py, Math.max(1.5, (Number(el.radius) || 0) * scale), 0, Math.PI * 2)
       ctx.fillStyle = hexToRgba(color, 0.18)
@@ -686,7 +706,7 @@ function drawMinimap() {
       ctx.stroke()
     } else {
       ctx.beginPath()
-      ctx.arc(px, py, el.type === 'character' ? 2 : 1.4, 0, Math.PI * 2)
+      ctx.arc(px, py, el.type === 'character' || el.type === 'custom' ? 2 : 1.4, 0, Math.PI * 2)
       ctx.fillStyle = color
       ctx.fill()
     }
@@ -789,7 +809,7 @@ function hitTest(px, py) {
   const order = [...DRAW_ORDER].reverse()
   for (const type of order) {
     for (const el of props.elements) {
-      if (el.type !== type || !visibleSet.value.has(el.type)) continue
+      if (el.type !== type || !isVisible(el)) continue
       const pos = elementPos(el)
       if (isPathType(el.type)) {
         const pts = absPoints(el, pos).map((p) => ({ x: sx(p.x), y: sy(p.y) }))
@@ -815,7 +835,7 @@ function hitTest(px, py) {
   if (best) return best
   // 区域兜底：点击空白区域时选中面积最小的区域/聚落
   const areas = props.elements
-    .filter((el) => (el.type === 'region' || el.type === 'settlement') && visibleSet.value.has(el.type))
+    .filter((el) => (el.type === 'region' || el.type === 'settlement') && isVisible(el))
     .filter((el) => Math.hypot(px - sx(el.x), py - sy(el.y)) < (Number(el.radius) || 0) * cam.zoom)
     .sort((a, b) => (Number(a.radius) || 0) - (Number(b.radius) || 0))
   return areas[0] || null

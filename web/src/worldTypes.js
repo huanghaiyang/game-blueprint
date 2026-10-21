@@ -109,6 +109,85 @@ export const WORLD_TYPES = {
 
 export const WORLD_CATEGORIES = ['地形', '据点', '内容']
 
+export const DEFAULT_WORLD_CATEGORIES = [
+  { id: 'terrain', name: '地形', emoji: '🏞️', builtin: true },
+  { id: 'site', name: '据点', emoji: '🏰', builtin: true },
+  { id: 'content', name: '内容', emoji: '🎭', builtin: true }
+]
+
+const CATEGORY_LABEL_TO_ID = { 地形: 'terrain', 据点: 'site', 内容: 'content' }
+export const TYPE_CATEGORY_ID = Object.fromEntries(
+  Object.entries(WORLD_TYPES).map(([type, meta]) => [type, CATEGORY_LABEL_TO_ID[meta.category] || 'content'])
+)
+
+export function categoryIdOfType(type) {
+  return TYPE_CATEGORY_ID[type] || 'content'
+}
+
+export function resolveCategoryId(el, categories = DEFAULT_WORLD_CATEGORIES, customTypes = []) {
+  const ids = new Set(categories.map((c) => c.id))
+  if (el?.categoryId && ids.has(el.categoryId)) return el.categoryId
+  if (el?.type === 'custom') {
+    const ct = customTypes.find((t) => t.id === el.customTypeId)
+    return ct?.categoryId && ids.has(ct.categoryId) ? ct.categoryId : 'content'
+  }
+  return categoryIdOfType(el?.type)
+}
+
+export function iconOfElement(el, customTypes = []) {
+  if (el?.type === 'custom') {
+    const ct = customTypes.find((t) => t.id === el.customTypeId)
+    return ct?.icon || el.icon || '✨'
+  }
+  return WORLD_TYPES[el?.type]?.icon || '•'
+}
+
+export function labelOfElement(el, customTypes = []) {
+  if (el?.type === 'custom') {
+    const ct = customTypes.find((t) => t.id === el.customTypeId)
+    return ct?.name || el.name || '自定义元素'
+  }
+  return WORLD_TYPES[el?.type]?.label || el?.type || '元素'
+}
+
+export function newCategory(name, emoji = '📁') {
+  return {
+    id: `cat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 5)}`,
+    name: String(name || '新分类').trim() || '新分类',
+    emoji: emoji || '📁',
+    builtin: false
+  }
+}
+
+export function newCustomType({ name, icon, categoryId, color, radius, description }) {
+  return {
+    id: `ctype-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 5)}`,
+    name: String(name || '自定义元素').trim() || '自定义元素',
+    icon: icon || '✨',
+    categoryId: categoryId || 'content',
+    color: color || '#67e8f9',
+    radius: Number(radius) > 0 ? Number(radius) : 0,
+    description: String(description || '')
+  }
+}
+
+export function createCustomElement(customType, x = 0, y = 0) {
+  const el = {
+    id: newId(),
+    type: 'custom',
+    customTypeId: customType.id,
+    name: customType.name,
+    x: Math.round(x),
+    y: Math.round(y),
+    color: customType.color || '#67e8f9',
+    icon: customType.icon || '✨',
+    categoryId: customType.categoryId || 'content',
+    data: { description: customType.description || '', notes: '' }
+  }
+  if (Number(customType.radius) > 0) el.radius = Number(customType.radius)
+  return el
+}
+
 export function worldTypesByCategory() {
   return WORLD_CATEGORIES.map((name) => ({
     name,
@@ -137,6 +216,7 @@ export function createElement(type, x = 0, y = 0) {
     x: Math.round(x),
     y: Math.round(y),
     color: meta.color,
+    categoryId: categoryIdOfType(type),
     data: structuredClone(meta.data)
   }
   if (meta.radius) el.radius = meta.radius

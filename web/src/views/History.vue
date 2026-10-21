@@ -53,6 +53,7 @@ function countText(m) {
 }
 
 function typeLabel(type) {
+  if (type === 'custom') return '自定义元素'
   return WORLD_TYPES[type]?.label || type
 }
 
@@ -310,6 +311,8 @@ onMounted(load)
                       <span>聚落 {{ m.settlements?.before || 0 }} → {{ m.settlements?.after || 0 }}</span>
                       <span>对话 {{ m.dialogues?.before || 0 }} → {{ m.dialogues?.after || 0 }}</span>
                       <span>任务 {{ m.quests?.before || 0 }} → {{ m.quests?.after || 0 }}</span>
+                      <span v-if="m.customTypes">类型 {{ m.customTypes.before || 0 }} → {{ m.customTypes.after || 0 }}</span>
+                      <span v-if="m.categories">分类 {{ m.categories.before || 0 }} → {{ m.categories.after || 0 }}</span>
                     </div>
                     <div class="type-diff">
                       <span v-for="(n, t) in m.byType?.after || {}" :key="t" class="chip tiny" :class="{ amber: (m.byType?.before?.[t] || 0) !== n }">

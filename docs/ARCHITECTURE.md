@@ -313,6 +313,50 @@ Node HTTP 服务（server/index.js）
 - 引用：`characterId` 指向 `characters[].id`；`narrativeNodeId` 指向 `narrative.nodes[].id`；`portal.targetId` 指向其他元素 id。
 - 体检（`world.js`）会检查：重复/缺失坐标、角色与剧情节点引用、空对话、空任务目标、聚落敌对 + 安全区冲突、传送门目标、收集物数量、路径点数量等。
 
+### 2.5.1 自定义元素、分类与 Emoji
+
+`world` 除了 `elements`，还保存分类注册表和自定义类型：
+
+```json
+{
+  "categories": [
+    { "id": "terrain", "name": "地形", "emoji": "🏞️", "builtin": true },
+    { "id": "cat-m...", "name": "遗迹", "emoji": "🗿", "builtin": false }
+  ],
+  "customTypes": [
+    {
+      "id": "ctype-m...",
+      "name": "遗迹入口",
+      "icon": "🗿",
+      "categoryId": "cat-m...",
+      "color": "#67e8f9",
+      "radius": 180,
+      "description": "可进入的古代遗迹"
+    }
+  ],
+  "elements": [
+    {
+      "id": "w-m...",
+      "type": "custom",
+      "customTypeId": "ctype-m...",
+      "name": "北岸遗迹",
+      "icon": "🗿",
+      "categoryId": "cat-m...",
+      "x": 100, "y": -194, "radius": 180,
+      "data": { "description": "被潮水侵蚀的石门", "notes": "" }
+    }
+  ]
+}
+```
+
+- 内置分类 ID 固定为 `terrain`（地形）、`site`（据点）、`content`（内容），新分类使用 `cat-*`；自定义类型使用 `ctype-*`。
+- **归类优先级**：元素自己的 `categoryId` → 自定义类型的 `categoryId` → 内置类型映射（`settlement/stronghold/building/bulletin/sign/portal` 归据点，`river/mountain/tree/road/region` 归地形，其余归内容）。因此任何内置元素也能被重新归类。
+- 自定义元素以 `type:"custom"` 存储，`customTypeId` 指向类型；实例保存名称、图标、分类、半径和备注，可在检查器中覆盖图标/分类。
+- 类型编辑会同步到未单独覆盖的实例；分类或类型仍被引用时禁止删除。
+- Emoji 选择器 `web/src/emoji.js` 内置 **370 个精选图标**（14 组：地形、建筑、角色、物品、战斗、标记、动物、交通、天气、生活、活动、工具、食物、符号），并支持直接粘贴任意 Emoji/符号；不依赖网络或 Emoji 数据包。
+- 画布对 `type:"custom"` 绘制 Emoji 圆标；`radius > 0` 时先绘制区域底色与虚线边界。
+- 版本差异会把 `categories` / `customTypes` 的增删改与元素差异一并纳入 `world` 模块；`.gstory` 与历史快照天然包含这些字段。
+
 ### 2.6 画布撤销 / 重做
 
 前端 `World.vue` 维护一个**元素快照栈**（最多 60 步），覆盖画布上的所有写操作：

@@ -1,12 +1,14 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { WORLD_TYPES, newDialogue, newQuest, isPathType, isAreaType } from '../worldTypes'
+import { WORLD_TYPES, newDialogue, newQuest, isPathType, isAreaType, resolveCategoryId } from '../worldTypes'
 
 const props = defineProps({
   element: { type: Object, default: null },
   characters: { type: Array, default: () => [] },
   nodes: { type: Array, default: () => [] },
-  elements: { type: Array, default: () => [] }
+  elements: { type: Array, default: () => [] },
+  categories: { type: Array, default: () => [] },
+  customTypes: { type: Array, default: () => [] }
 })
 const emit = defineEmits(['delete', 'navigate-narrative'])
 
@@ -15,7 +17,20 @@ const viewerId = ref(props.characters[0]?.id || '')
 const selectedDialogueId = ref('')
 const choiceResponse = ref('')
 
-const typeMeta = computed(() => (props.element ? WORLD_TYPES[props.element.type] : null))
+const typeMeta = computed(() => {
+  if (!props.element) return null
+  if (props.element.type === 'custom') {
+    const ct = props.customTypes.find((t) => t.id === props.element.customTypeId)
+    return { label: ct?.name || '自定义元素', icon: ct?.icon || props.element.icon || '✨' }
+  }
+  return WORLD_TYPES[props.element.type] || null
+})
+const categoryId = computed({
+  get: () => (props.element ? resolveCategoryId(props.element, props.categories, props.customTypes) : ''),
+  set: (v) => {
+    if (props.element) props.element.categoryId = v
+  }
+})
 const data = computed(() => props.element?.data || {})
 const isCharacter = computed(() => props.element?.type === 'character')
 const dialogues = computed(() => (isCharacter.value ? data.value.dialogues || [] : []))
@@ -146,14 +161,31 @@ function deleteElement() {
 
         <div v-if="tab === 'base'" class="col" style="padding: 12px 14px 18px; gap: 12px">
           <label class="field"><span class="label">名称</span><input v-model="element.name" class="input" /></label>
+          <label class="field">
+            <span class="label">分类</span>
+            <select v-model="categoryId" class="select">
+              <option v-for="c in categories" :key="c.id" :value="c.id">{{ c.emoji }} {{ c.name }}</option>
+            </select>
+          </label>
           <div class="grid grid-2">
             <label class="field"><span class="label">X 坐标</span><input v-model.number="element.x" type="number" step="10" class="input mono" /></label>
             <label class="field"><span class="label">Y 坐标</span><input v-model.number="element.y" type="number" step="10" class="input mono" /></label>
           </div>
           <div class="grid grid-2">
             <label class="field"><span class="label">颜色</span><input v-model="element.color" type="color" class="input color-input" /></label>
-            <label v-if="isAreaType(element.type)" class="field"><span class="label">范围半径</span><input v-model.number="element.radius" type="number" min="0" step="10" class="input mono" /></label>
+            <label v-if="isAreaType(element.type) || element.type === 'custom'" class="field"><span class="label">范围半径</span><input v-model.number="element.radius" type="number" min="0" step="10" class="input mono" /></label>
           </div>
+
+          <!-- 自定义元素 -->
+          <template v-if="element.type === 'custom'">
+            <div class="row">
+              <span class="chip tiny cyan">{{ typeMeta?.icon }} {{ typeMeta?.label }}</span>
+              <span class="tiny dim">自定义类型 · 可在「分类与自定义类型」中管理</span>
+            </div>
+            <label class="field"><span class="label">实例图标（可覆盖类型）</span><input v-model="element.icon" class="input" maxlength="16" placeholder="✨" /></label>
+            <label class="field"><span class="label">说明</span><textarea v-model="data.description" class="textarea" rows="2"></textarea></label>
+            <div class="hint">半径 &gt; 0 时显示为区域；否则显示为点位。名称、图标和备注按实例保存。</div>
+          </template>
 
           <!-- 聚落 -->
           <template v-if="element.type === 'settlement'">

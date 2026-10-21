@@ -2,7 +2,7 @@
 import { mkdir, readdir, readFile, access, unlink } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
-import { seedProject, blankProject, DEFAULT_MODULES } from './seed.js'
+import { seedProject, blankProject, DEFAULT_MODULES, DEFAULT_WORLD_CATEGORIES } from './seed.js'
 import { ensureHistory, recordVersion, checkpoint, resetHistory, deleteHistory, getVersion } from './versions.js'
 import { atomicWrite } from './atomic.js'
 
@@ -62,6 +62,8 @@ export function normalizeProject(p) {
     world: {
       name: base.world?.name || '未命名世界',
       scaleLabel: base.world?.scaleLabel || '1 格 ≈ 20 米',
+      categories: Array.isArray(base.world?.categories) ? base.world.categories : DEFAULT_WORLD_CATEGORIES.map((c) => ({ ...c })),
+      customTypes: Array.isArray(base.world?.customTypes) ? base.world.customTypes : [],
       elements: Array.isArray(base.world?.elements) ? base.world.elements : []
     },
     cases

@@ -15,6 +15,12 @@ export const DEFAULT_MODULES = {
 
 /* ---------------- 开放世界演示地图 ---------------- */
 
+export const DEFAULT_WORLD_CATEGORIES = [
+  { id: 'terrain', name: '地形', emoji: '🏞️', builtin: true },
+  { id: 'site', name: '据点', emoji: '🏰', builtin: true },
+  { id: 'content', name: '内容', emoji: '🎭', builtin: true }
+]
+
 function pathElement(id, type, name, coords, width, color) {
   const [x, y] = coords[0]
   return {
@@ -282,7 +288,7 @@ export function seedWorld() {
     }
   ]
 
-  return { name: '雾港群岛', scaleLabel: '1 格 ≈ 20 米', elements }
+  return { name: '雾港群岛', scaleLabel: '1 格 ≈ 20 米', categories: DEFAULT_WORLD_CATEGORIES.map((c) => ({ ...c })), customTypes: [], elements }
 }
 
 function starterCharacter(base, growth, name = '主角', color = '#7dd3fc') {
@@ -344,7 +350,7 @@ export function blankProject({ name = '未命名企划', meta = {}, modules = {}
       edges: []
     },
     cases: [],
-    world: { name: `${name}的世界`, scaleLabel: '1 格 ≈ 20 米', elements: [] }
+    world: { name: `${name}的世界`, scaleLabel: '1 格 ≈ 20 米', categories: DEFAULT_WORLD_CATEGORIES.map((c) => ({ ...c })), customTypes: [], elements: [] }
   }
 }
 

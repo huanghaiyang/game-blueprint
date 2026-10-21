@@ -294,6 +294,8 @@ export function compareProjects(fromProject, toProject, versionMeta = {}) {
   const blueprint = moduleResult('blueprint', !same(from.blueprint, to.blueprint), { fields: blueprintFields.changes, extra: { fieldTotal: blueprintFields.total } })
 
   const elementDiff = entityDiff(arr(from.world?.elements), arr(to.world?.elements))
+  const customTypeDiff = entityDiff(arr(from.world?.customTypes), arr(to.world?.customTypes))
+  const categoryDiff = entityDiff(arr(from.world?.categories), arr(to.world?.categories))
   const worldChanged = !same(from.world, to.world)
   const beforeWorld = worldExtras(from)
   const afterWorld = worldExtras(to)
@@ -306,6 +308,16 @@ export function compareProjects(fromProject, toProject, versionMeta = {}) {
       dialogues: { before: beforeWorld.dialogues, after: afterWorld.dialogues },
       quests: { before: beforeWorld.quests, after: afterWorld.quests },
       settlements: { before: beforeWorld.settlements, after: afterWorld.settlements },
+      customTypes: {
+        before: arr(from.world?.customTypes).length,
+        after: arr(to.world?.customTypes).length,
+        ...customTypeDiff
+      },
+      categories: {
+        before: arr(from.world?.categories).length,
+        after: arr(to.world?.categories).length,
+        ...categoryDiff
+      },
       settlementChanges: settlementChanges(from, to)
     }
   })

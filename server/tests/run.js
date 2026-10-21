@@ -285,6 +285,20 @@ test('.gstory 导出、校验与冲突预检', () => {
   assert.ok(plan.suggestedName.includes('导入'))
   assert.equal(plan.canOverwrite, true)
 })
+test('自定义分类与元素类型进入世界差异', () => {
+  const from = seedProject()
+  const to = structuredClone(from)
+  to.world.categories.push({ id: 'cat-test', name: '测试分类', emoji: '🧪', builtin: false })
+  to.world.customTypes.push({ id: 'ctest', name: '测试点', icon: '🧪', categoryId: 'cat-test', color: '#67e8f9', radius: 0 })
+  to.world.elements.push({ id: 'w-custom-test', type: 'custom', customTypeId: 'ctest', name: '测试点', x: 0, y: 0, icon: '🧪', categoryId: 'cat-test', data: { description: '测试' } })
+  const d = compareProjects(from, to, {})
+  assert.ok(d.summary.changedModules.some((m) => m.key === 'world'))
+  assert.equal(d.modules.world.details.added.total, 1)
+  assert.equal(d.modules.world.customTypes.after, 1)
+  assert.equal(d.modules.world.categories.after, 4)
+  assert.equal(d.modules.world.customTypes.added[0].name, '测试点')
+})
+
 test('损坏的 .gstory 会被拒绝', () => {
   assert.throws(() => parseGstory(Buffer.from('not a zip')))
   const built = buildGstory(project, { revision: 1 })
